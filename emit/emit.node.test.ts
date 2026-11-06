@@ -138,6 +138,54 @@ namespace $ {
 			$mol_assert_equal( result, { status: 0, stdout: 'ok $bog_wire_emit_case.empty\n', stderr: '' } )
 		},
 
+		'logic short circuits recursion'() {
+			const result = build([{
+				uri: 'bog/wire/emit/case.test.wire',
+				text: [
+					'object $bog_wire_emit_case {',
+					'	down( n: int ): bool = n > 0 && down( n - 1 )',
+					'	up( n: int ): bool = n <= 0 || up( n - 1 )',
+					'	action stops() {',
+					'		assert( !down( 5 ) )',
+					'		assert( up( 5 ) )',
+					'	}',
+					'}',
+				].join( '\n' ),
+			}] )
+			$mol_assert_equal( result, { status: 0, stdout: 'ok $bog_wire_emit_case.stops\n', stderr: '' } )
+		},
+
+		'text operations'() {
+			const result = build([{
+				uri: 'bog/wire/emit/case.test.wire',
+				text: [
+					'object $bog_wire_emit_case {',
+					'	line = "  A1 = 2 + 3  "',
+					'	clean = line.trim',
+					'	eq = clean.find( "=" ) ?? -1',
+					'	name = clean.slice( 0, eq ).trim',
+					'	source = clean.slice( eq + 1, clean.size ).trim',
+					'	parts = source.split( " + " )',
+					'	action ops() {',
+					'		assert( clean == "A1 = 2 + 3" )',
+					'		assert( eq == 3 )',
+					'		assert( name == "A1" )',
+					'		assert( parts == [ "2", "3" ] )',
+					'		assert( "42".int == 42 )',
+					'		assert( "4x".int == none )',
+					'		assert( "2.5".float == 2.5 )',
+					'		assert( "жук".size == 3 )',
+					'		assert( "жук".chars == [ "ж", "у", "к" ] )',
+					'		assert( "жук".slice( 1, 3 ) == "ук" )',
+					'		assert( "x".find( "y" ) == none )',
+					'		assert( "a{ name + "!" }c" == "aA1!c" )',
+					'	}',
+					'}',
+				].join( '\n' ),
+			}] )
+			$mol_assert_equal( result, { status: 0, stdout: 'ok $bog_wire_emit_case.ops\n', stderr: '' } )
+		},
+
 		'failed assert fails the test'() {
 			const result = build([{
 				uri: 'bog/wire/emit/case.test.wire',

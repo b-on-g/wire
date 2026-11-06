@@ -1,0 +1,105 @@
+type $bog_wire_demonative_formula_step {
+	num: float
+	err: text
+	end: int
+}
+
+object $bog_wire_demonative_formula {
+
+	source: text
+	sheet: $bog_wire_demonative_sheet
+
+	size = source.size
+
+	char( pos: int ) = source.slice( pos, pos + 1 )
+
+	digit( c: text ) = c >= "0" && c <= "9"
+
+	upper( c: text ) = c >= "A" && c <= "Z"
+
+	skip( pos: int ): int = char( pos ) == " " ? skip( pos + 1 ) : pos
+
+	sign( pos: int ) = char( skip( pos ) )
+
+	fail( pos: int ) = $bog_wire_demonative_formula_step{ num: 0.0, err: "syntax", end: pos }
+
+	result = source.trim == ""
+		? $bog_wire_demonative_formula_step{ num: 0.0, err: "", end: 0 }
+		: whole( expr( 0 ) )
+
+	whole( step: $bog_wire_demonative_formula_step ): $bog_wire_demonative_formula_step = step.err != ""
+		? step
+		: skip( step.end ) == size ? step : fail( step.end )
+
+	expr( pos: int ) = expr_tail( term( pos ) )
+
+	expr_tail( left: $bog_wire_demonative_formula_step ): $bog_wire_demonative_formula_step = left.err != ""
+		? left
+		: sign( left.end ) == "+" ? expr_tail( plus( left, term( skip( left.end ) + 1 ) ) )
+		: sign( left.end ) == "-" ? expr_tail( minus( left, term( skip( left.end ) + 1 ) ) )
+		: left
+
+	term( pos: int ) = term_tail( factor( pos ) )
+
+	term_tail( left: $bog_wire_demonative_formula_step ): $bog_wire_demonative_formula_step = left.err != ""
+		? left
+		: sign( left.end ) == "*" ? term_tail( times( left, factor( skip( left.end ) + 1 ) ) )
+		: sign( left.end ) == "/" ? term_tail( divide( left, factor( skip( left.end ) + 1 ) ) )
+		: left
+
+	plus( a: $bog_wire_demonative_formula_step, b: $bog_wire_demonative_formula_step ) = b.err != ""
+		? b
+		: $bog_wire_demonative_formula_step{ num: a.num + b.num, err: "", end: b.end }
+
+	minus( a: $bog_wire_demonative_formula_step, b: $bog_wire_demonative_formula_step ) = b.err != ""
+		? b
+		: $bog_wire_demonative_formula_step{ num: a.num - b.num, err: "", end: b.end }
+
+	times( a: $bog_wire_demonative_formula_step, b: $bog_wire_demonative_formula_step ) = b.err != ""
+		? b
+		: $bog_wire_demonative_formula_step{ num: a.num * b.num, err: "", end: b.end }
+
+	divide( a: $bog_wire_demonative_formula_step, b: $bog_wire_demonative_formula_step ) = b.err != ""
+		? b
+		: b.num == 0.0 ? $bog_wire_demonative_formula_step{ num: 0.0, err: "div0", end: b.end }
+		: $bog_wire_demonative_formula_step{ num: a.num / b.num, err: "", end: b.end }
+
+	factor( at: int ): $bog_wire_demonative_formula_step = factor_at( skip( at ) )
+
+	factor_at( pos: int ): $bog_wire_demonative_formula_step = char( pos ) == "-" ? negate( factor( pos + 1 ) )
+		: char( pos ) == "(" ? closing( expr( pos + 1 ) )
+		: digit( char( pos ) ) ? number( pos, digit_end( pos ) )
+		: upper( char( pos ) ) ? reference( pos, name_end( pos ) )
+		: fail( pos )
+
+	negate( step: $bog_wire_demonative_formula_step ) = $bog_wire_demonative_formula_step{ num: 0.0 - step.num, err: step.err, end: step.end }
+
+	closing( step: $bog_wire_demonative_formula_step ) = step.err != ""
+		? step
+		: sign( step.end ) == ")" ? $bog_wire_demonative_formula_step{ num: step.num, err: "", end: skip( step.end ) + 1 }
+		: fail( step.end )
+
+	digit_end( pos: int ): int = digit( char( pos ) ) || char( pos ) == "." ? digit_end( pos + 1 ) : pos
+
+	number( from: int, to: int ) = numbered( source.slice( from, to ).float, to )
+
+	numbered( value: float?, end: int ) = value == none
+		? fail( end )
+		: $bog_wire_demonative_formula_step{ num: value ?? 0.0, err: "", end }
+
+	name_end( pos: int ): int = upper( char( pos ) ) || digit( char( pos ) ) ? name_end( pos + 1 ) : pos
+
+	reference( from: int, to: int ) = looked( sheet.value( source.slice( from, to ) ), to )
+
+	looked( found: $bog_wire_demonative_sheet_result, end: int ) = $bog_wire_demonative_formula_step{ num: found.num, err: found.err, end }
+
+	starts( pos: int ) = upper( char( pos ) ) && ( pos == 0 || !upper( char( pos - 1 ) ) && !digit( char( pos - 1 ) ) )
+
+	names_from( pos: int ): list text = pos >= size
+		? []
+		: starts( pos ) ? [ source.slice( pos, name_end( pos ) ), ... names_from( name_end( pos ) ) ]
+		: names_from( pos + 1 )
+
+	refs = names_from( 0 )
+
+}

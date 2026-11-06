@@ -16,6 +16,31 @@ namespace $ {
 
 	const escapes: Record< string, string > = { n: '\n', t: '\t', '"': '"', '\\': '\\', '{': '{', '}': '}' }
 
+	function close( raw: string, open: number ) {
+		let depth = 0
+		let index = open
+
+		while( index < raw.length ) {
+			const char = raw[ index ]
+			if( char === '\\' ) {
+				index += 2
+				continue
+			}
+			if( char === '"' ) {
+				index += 1
+				while( index < raw.length && raw[ index ] !== '"' ) index += raw[ index ] === '\\' ? 2 : 1
+			}
+			if( char === '{' ) depth += 1
+			if( char === '}' ) {
+				depth -= 1
+				if( !depth ) return index
+			}
+			index += 1
+		}
+
+		return -1
+	}
+
 	class Parser {
 
 		pos = 0
@@ -355,7 +380,7 @@ namespace $ {
 				}
 
 				if( char === '{' ) {
-					const end = raw.indexOf( '}', index )
+					const end = close( raw, index )
 					if( end < 0 ) this.fail( at( index ), 'Unclosed {' )
 					if( chunk ) parts.push( chunk )
 					chunk = ''

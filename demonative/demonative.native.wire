@@ -1,0 +1,31 @@
+object $bog_wire_demonative_repl {
+
+	solid app = $bog_wire_demonative()
+
+	solid seen( next?: int ) = next ?? 0
+
+	line = stdin( seen )
+
+	said = line ?? ""
+
+	action main() {
+		step()
+	}
+
+	action step() {
+		line == none ? none : handle()
+	}
+
+	action handle() {
+		app.exec( said )
+		app.command( said ).skipped || app.command( said ).error != "" ? none : show()
+		seen( seen + 1 )
+		after( step )
+	}
+
+	action show() {
+		print( app.sheet.table )
+		print( "--" )
+	}
+
+}

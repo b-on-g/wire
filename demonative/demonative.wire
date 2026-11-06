@@ -1,0 +1,15 @@
+object $bog_wire_demonative {
+
+	solid sheet = $bog_wire_demonative_sheet()
+
+	command( line: text ) = $bog_wire_demonative_command {
+		source <= line
+	}
+
+	action exec( line: text ) {
+		command( line ).skipped ? none
+			: command( line ).error != "" ? print( "! {command( line ).error}" )
+			: sheet.set( command( line ).name, command( line ).formula )
+	}
+
+}

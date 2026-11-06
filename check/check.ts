@@ -8,9 +8,11 @@ namespace $ {
 
 	export type $bog_wire_check_ref =
 		| { kind: 'param', name: string }
+		| { kind: 'self' }
 		| { kind: 'member', owner: string, member: string }
 		| { kind: 'field', record: string, index: number }
 		| { kind: 'list', op: string }
+		| { kind: 'text', op: string }
 		| { kind: 'assert' | 'print' | 'stdin' }
 		| { kind: 'after', owner: string, member: string }
 		| { kind: 'invoke', owner: string, member: string, mode: 'read' | 'write' | 'action' }
@@ -280,6 +282,10 @@ namespace $ {
 						return param
 					}
 					const member = this.member( scope.owner, expr.name )
+					if( !member && expr.name === 'self' ) {
+						this.refs.set( expr, { kind: 'self' } )
+						return { kind: 'object', name: scope.owner.name }
+					}
 					if( !member ) return this.fail( expr.span, `Unknown ${ expr.name }` )
 					this.refs.set( expr, { kind: 'member', owner: scope.owner.name, member: member.name } )
 					return this.read( scope.owner, member, expr.span )
@@ -420,6 +426,19 @@ namespace $ {
 				return this.fail( expr.span, `List has no ${ expr.name }` )
 			}
 
+			if( target.kind === 'text' ) {
+				const fields: { [ name: string ]: Type } = {
+					size: int,
+					trim: text,
+					chars: list( text ),
+					int: maybe( int ),
+					float: maybe( float ),
+				}
+				if( !Object.hasOwn( fields, expr.name ) ) return this.fail( expr.span, `Text has no ${ expr.name }` )
+				this.refs.set( expr, { kind: 'text', op: expr.name } )
+				return fields[ expr.name ]
+			}
+
 			return this.fail( expr.span, `${ show( target ) } has no ${ expr.name }` )
 		}
 
@@ -475,6 +494,7 @@ namespace $ {
 				const target = this.expr( callee.target, scope )
 				if( target.kind === 'error' ) return error
 				if( target.kind === 'list' ) return this.list_call( target, callee.name, expr, scope )
+				if( target.kind === 'text' ) return this.text_call( callee.name, expr, scope )
 				if( target.kind === 'object' ) {
 					const owner = this.decls.get( target.name ) as Owner
 					const member = this.member( owner, callee.name )
@@ -486,6 +506,26 @@ namespace $ {
 			}
 
 			return this.fail( expr.span, 'Not callable' )
+		}
+
+		text_call( name: string, expr: Extract< Expr, { kind: 'call' } >, scope: Scope ): Type {
+			const signatures: { [ name: string ]: [ Type[], Type ] } = {
+				slice: [ [ int, int ], text ],
+				find: [ [ text ], maybe( int ) ],
+				split: [ [ text ], list( text ) ],
+			}
+
+			if( !Object.hasOwn( signatures, name ) ) return this.fail( expr.callee.span, `Text has no ${ name }` )
+			const [ params, result ] = signatures[ name ]
+			if( expr.args.length !== params.length ) return this.fail( expr.span, `${ name } takes ${ params.length } args` )
+
+			params.forEach( ( param, index ) => {
+				const type = this.expr( expr.args[ index ], scope )
+				if( !fits( type, param ) ) this.fail( expr.args[ index ].span, `Expected ${ show( param ) }, got ${ show( type ) }` )
+			} )
+
+			this.refs.set( expr, { kind: 'text', op: name } )
+			return result
 		}
 
 		task( arg: Expr, scope: Scope ) {

@@ -1,0 +1,24 @@
+object $bog_wire_demonative_test {
+
+	app = $bog_wire_demonative()
+
+	action exec_sets_and_clears() {
+		app.exec( "A1 = 2" )
+		app.exec( " B1=A1*A1 " )
+		assert( app.sheet.value( "B1" ).num == 4.0 )
+		app.exec( "A1 =" )
+		assert( app.sheet.value( "B1" ).num == 0.0 )
+		assert( app.sheet.names == [ "B1" ] )
+	}
+
+	action exec_rejects_garbage() {
+		app.exec( "# comment" )
+		assert( app.command( "# comment" ).skipped )
+		assert( app.command( "hello" ).error == "expected NAME = formula" )
+		assert( app.command( "a1 = 1" ).error == "bad name: a1" )
+		assert( app.command( "1A = 1" ).error == "bad name: 1A" )
+		assert( app.command( "TOTAL = 1" ).error == "" )
+		assert( app.sheet.names == [] )
+	}
+
+}

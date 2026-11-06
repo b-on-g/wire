@@ -1,0 +1,28 @@
+object $bog_wire_demonative_command {
+
+	source: text
+
+	input = source.trim
+
+	eq = input.find( "=" ) ?? -1
+
+	name = input.slice( 0, eq ).trim
+
+	formula = input.slice( eq + 1, input.size ).trim
+
+	char( pos: int ) = name.slice( pos, pos + 1 )
+
+	upper( pos: int ) = char( pos ) >= "A" && char( pos ) <= "Z"
+
+	digit( pos: int ) = char( pos ) >= "0" && char( pos ) <= "9"
+
+	name_from( pos: int ): bool = pos >= name.size || ( upper( pos ) || pos > 0 && digit( pos ) ) && name_from( pos + 1 )
+
+	skipped = input == "" || input.slice( 0, 1 ) == "#"
+
+	error = skipped ? ""
+		: eq < 0 ? "expected NAME = formula"
+		: name == "" || !name_from( 0 ) ? "bad name: {name}"
+		: ""
+
+}

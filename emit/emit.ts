@@ -29,6 +29,14 @@ namespace $ {
 		never: 'WIRE_VOID',
 	}
 
+	const text_fields: { [ op: string ]: Type } = {
+		size: { kind: 'int' },
+		trim: { kind: 'text' },
+		chars: { kind: 'list', item: { kind: 'text' } },
+		int: { kind: 'maybe', item: { kind: 'int' } },
+		float: { kind: 'maybe', item: { kind: 'float' } },
+	}
+
 	function cstr( text: string ) {
 		let out = '"'
 		for( const byte of new TextEncoder().encode( text ) ) {
@@ -318,6 +326,10 @@ namespace $ {
 						push( `wire_val ${ out } = ${ ctx.params.get( expr.name )!.c };` )
 						return out
 					}
+					if( ref.kind === 'self' ) {
+						push( `wire_val ${ out } = { .obj = self };` )
+						return out
+					}
 					const member = ref as { owner: string, member: string }
 					push( `wire_val ${ out } = wire_read( self, ${ this.descriptor_of( member.owner, member.member ) }, NULL, NULL );` )
 					return out
@@ -400,6 +412,7 @@ namespace $ {
 				const shape = this.decl( ref.record ) as Shape
 				return this.check.type( shape.fields[ ref.index ].type )
 			}
+			if( ref.kind === 'text' ) return text_fields[ ref.op ]
 			if( ( ref as { op: string } ).op === 'size' ) return { kind: 'int' }
 			const target = this.of( expr.target )
 			const list = ( target.kind === 'maybe' ? target.item : target ) as { item: Type }
@@ -414,6 +427,13 @@ namespace $ {
 				ctx.lines.push( `wire_val ${ out } = wire_read( ${ target }.obj, ${ this.descriptor_of( ref.owner, ref.member ) }, NULL, NULL );` )
 			} else if( ref.kind === 'field' ) {
 				ctx.lines.push( `wire_val ${ out } = wire_record_get( ${ target }, ${ ref.index } );` )
+			} else if( ref.kind === 'text' ) {
+				const type = this.type( text_fields[ ref.op ] )
+				switch( ref.op ) {
+					case 'size': ctx.lines.push( `wire_val ${ out } = { .i = wire_text_size( ${ target } ) };` ); break
+					case 'trim': ctx.lines.push( `wire_val ${ out } = wire_text_trim( ${ target } );` ); break
+					default: ctx.lines.push( `wire_val ${ out } = wire_text_${ ref.op }( ${ type }, ${ target } );` )
+				}
 			} else if( ref.kind === 'list' && ref.op === 'size' ) {
 				ctx.lines.push( `wire_val ${ out } = { .i = wire_list_size( ${ target } ) };` )
 			} else {
@@ -467,6 +487,18 @@ namespace $ {
 			}
 
 			if( ref.kind === 'list' ) return this.list_call( expr, ref.op, ctx, out )
+
+			if( ref.kind === 'text' ) {
+				const text = this.expr( ( expr.callee as Field ).target, ctx )
+				const args = expr.args.map( arg => this.expr( arg, ctx ) )
+				const type = this.type( this.of( expr ) )
+				switch( ref.op ) {
+					case 'slice': push( `wire_val ${ out } = wire_text_slice( ${ text }, ${ args[0] }.i, ${ args[1] }.i );` ); break
+					case 'find': push( `wire_val ${ out } = wire_text_find( ${ type }, ${ text }, ${ args[0] } );` ); break
+					case 'split': push( `wire_val ${ out } = wire_text_split( ${ type }, ${ text }, ${ args[0] } );` ); break
+				}
+				return out
+			}
 
 			const invoke = ref as Extract< $bog_wire_check_ref, { kind: 'invoke' } >
 			const { decl, member } = this.member( invoke.owner, invoke.member )
@@ -611,6 +643,17 @@ namespace $ {
 				return out
 			}
 
+			if( expr.op === '&&' || expr.op === '||' ) {
+				const left = this.expr( expr.left, ctx )
+				push( `wire_val ${ out } = ${ left };` )
+				push( `if( ${ expr.op === '&&' ? '' : '!' }${ left }.b ) {` )
+				ctx.lines.push( ... this.block( ctx, ()=> {
+					push( `${ out } = ${ this.expr( expr.right, ctx ) };` )
+				} ) )
+				push( `}` )
+				return out
+			}
+
 			const left = this.expr( expr.left, ctx )
 			const right = this.expr( expr.right, ctx )
 			const right_type = this.of( expr.right )
@@ -636,10 +679,6 @@ namespace $ {
 					push( `wire_val ${ out } = { .b = ${ expr.op === '!=' ? '!' : '' }wire_eq( ${ this.type( united ) }, ${ a }, ${ b } ) };` )
 					return out
 				}
-
-				case '&&': case '||':
-					push( `wire_val ${ out } = { .b = ${ left }.b ${ expr.op } ${ right }.b };` )
-					return out
 
 			}
 

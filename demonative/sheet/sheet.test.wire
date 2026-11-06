@@ -1,0 +1,52 @@
+object $bog_wire_demonative_sheet_test {
+
+	sheet = $bog_wire_demonative_sheet()
+
+	action chain_follows_source() {
+		sheet.set( "A1", "10" )
+		sheet.set( "B1", "A1 * 2" )
+		sheet.set( "C1", "B1 + A1" )
+		assert( sheet.value( "C1" ).num == 30.0 )
+		sheet.set( "A1", "1" )
+		assert( sheet.value( "C1" ).num == 3.0 )
+	}
+
+	action precedence_and_parens() {
+		sheet.set( "A1", "2 + 3 * 4" )
+		sheet.set( "B1", "(2 + 3) * 4" )
+		sheet.set( "C1", "-(2 + 3) / 2" )
+		assert( sheet.value( "A1" ).num == 14.0 )
+		assert( sheet.value( "B1" ).num == 20.0 )
+		assert( sheet.value( "C1" ).num == -2.5 )
+	}
+
+	action errors_flow_and_heal() {
+		sheet.set( "A1", "1 / 0" )
+		sheet.set( "B1", "A1 + 1" )
+		sheet.set( "C1", "1 +" )
+		assert( sheet.value( "B1" ).err == "div0" )
+		assert( sheet.value( "C1" ).err == "syntax" )
+		sheet.set( "A1", "4" )
+		assert( sheet.value( "B1" ).num == 5.0 )
+	}
+
+	action cycle_is_error_and_heals() {
+		sheet.set( "A1", "B1 + 1" )
+		assert( sheet.value( "A1" ).num == 1.0 )
+		sheet.set( "B1", "A1" )
+		assert( sheet.value( "A1" ).err == "cycle" )
+		assert( sheet.value( "B1" ).err == "cycle" )
+		sheet.set( "B1", "10" )
+		assert( sheet.value( "A1" ).num == 11.0 )
+	}
+
+	action names_sorted_and_removed() {
+		sheet.set( "B1", "2" )
+		sheet.set( "A1", "1" )
+		assert( sheet.names == [ "A1", "B1" ] )
+		assert( sheet.table == "A1 = 1\nB1 = 2" )
+		sheet.set( "A1", "" )
+		assert( sheet.names == [ "B1" ] )
+	}
+
+}

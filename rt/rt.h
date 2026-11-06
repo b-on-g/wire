@@ -141,6 +141,14 @@ wire_val wire_stdin( int64_t index );
 wire_val wire_text_lit( const char* bytes, int64_t len );
 wire_val wire_text_cat( wire_val left, wire_val right );
 int wire_text_cmp( wire_val left, wire_val right );
+int64_t wire_text_size( wire_val text );
+wire_val wire_text_trim( wire_val text );
+wire_val wire_text_slice( wire_val text, int64_t from, int64_t to );
+wire_val wire_text_find( const wire_type* type, wire_val text, wire_val part );
+wire_val wire_text_split( const wire_type* type, wire_val text, wire_val separator );
+wire_val wire_text_chars( const wire_type* type, wire_val text );
+wire_val wire_text_int( const wire_type* type, wire_val text );
+wire_val wire_text_float( const wire_type* type, wire_val text );
 
 void wire_buf_lit( wire_buf* buf, const char* bytes, int64_t len );
 void wire_buf_int( wire_buf* buf, int64_t value );

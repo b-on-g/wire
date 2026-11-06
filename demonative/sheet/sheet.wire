@@ -1,0 +1,71 @@
+type $bog_wire_demonative_sheet_cell {
+	name: text
+	source: text
+}
+
+type $bog_wire_demonative_sheet_result {
+	num: float
+	err: text
+}
+
+object $bog_wire_demonative_sheet {
+
+	solid cells( next?: list $bog_wire_demonative_sheet_cell ) = next ?? []
+
+	cell_name( cell: $bog_wire_demonative_sheet_cell ) = cell.name
+
+	same( name: text ) = name
+
+	names = cells.map( cell_name ).sort( same )
+
+	source( name: text ) = cells.find( cell_name, name )?.source ?? ""
+
+	formula( name: text ) = $bog_wire_demonative_formula {
+		source <= source( name )
+		sheet <= self
+	}
+
+	refs( name: text ) = formula( name ).refs
+
+	search( target: text, depth: int ) = $bog_wire_demonative_sheet_search {
+		target <= target
+		depth <= depth
+		sheet <= self
+	}
+
+	cyclic( name: text ) = search( name, names.size ).any( name )
+
+	value( name: text ): $bog_wire_demonative_sheet_result = cyclic( name )
+		? $bog_wire_demonative_sheet_result{ num: 0.0, err: "cycle" }
+		: computed( formula( name ).result )
+
+	computed( step: $bog_wire_demonative_formula_step ) = $bog_wire_demonative_sheet_result{ num: step.num, err: step.err }
+
+	row( name: text ) = value( name ).err == ""
+		? "{name} = {value( name ).num}"
+		: "{name} = #{value( name ).err}"
+
+	table = names.map( row ).join( "\n" )
+
+	action set( name: text, formula_text: text ) {
+		cells( formula_text == ""
+			? cells.drop( cell_name, name )
+			: cells.upsert( cell_name, name, $bog_wire_demonative_sheet_cell{ name, source: formula_text } )
+		)
+	}
+
+}
+
+object $bog_wire_demonative_sheet_search {
+
+	target: text
+	depth: int
+	sheet: $bog_wire_demonative_sheet
+
+	yes( flag: bool ) = flag
+
+	hop( name: text ): bool = name == target || depth > 0 && sheet.search( target, depth - 1 ).any( name )
+
+	any( from: text ): bool = sheet.refs( from ).map( hop ).find( yes, true ) != none
+
+}

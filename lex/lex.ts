@@ -66,9 +66,21 @@ namespace $ {
 
 			if( char === '"' ) {
 				let end = pos + 1
-				while( end < source.length && source[ end ] !== '"' ) {
-					if( source[ end ] === '\n' ) break
-					end += source[ end ] === '\\' ? 2 : 1
+				let depth = 0
+				while( end < source.length && !( source[ end ] === '"' && depth === 0 ) ) {
+					const next = source[ end ]
+					if( next === '\n' ) break
+					if( next === '\\' ) {
+						end += 2
+						continue
+					}
+					if( next === '{' ) depth += 1
+					if( next === '}' && depth ) depth -= 1
+					if( next === '"' ) {
+						end += 1
+						while( end < source.length && source[ end ] !== '"' && source[ end ] !== '\n' ) end += source[ end ] === '\\' ? 2 : 1
+					}
+					end += 1
 				}
 				if( source[ end ] !== '"' ) fail( 'Unclosed text', end - pos )
 				push( 'text', end - pos + 1, source.slice( pos + 1, end ) )

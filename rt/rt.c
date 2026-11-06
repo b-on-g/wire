@@ -203,6 +203,136 @@ int wire_text_cmp( wire_val left, wire_val right ) {
 	return a->len < b->len ? -1 : a->len > b->len ? 1 : 0;
 }
 
+static bool tail_byte( char byte ) {
+	return ( ( unsigned char ) byte & 0xC0 ) == 0x80;
+}
+
+static int64_t byte_at( wire_text* text, int64_t point ) {
+	int64_t index = 0;
+	int64_t seen = 0;
+	while( index < text->len ) {
+		if( !tail_byte( text->bytes[ index ] ) ) {
+			if( seen == point ) return index;
+			seen += 1;
+		}
+		index += 1;
+	}
+	return text->len;
+}
+
+static int64_t point_at( wire_text* text, int64_t byte ) {
+	int64_t count = 0;
+	for( int64_t i = 0; i < byte; ++i ) if( !tail_byte( text->bytes[ i ] ) ) count += 1;
+	return count;
+}
+
+int64_t wire_text_size( wire_val text ) {
+	wire_text* own = ( wire_text* ) text.box;
+	return point_at( own, own->len );
+}
+
+static bool blank( char byte ) {
+	return byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r';
+}
+
+wire_val wire_text_trim( wire_val text ) {
+	wire_text* own = ( wire_text* ) text.box;
+	int64_t from = 0;
+	int64_t to = own->len;
+	while( from < to && blank( own->bytes[ from ] ) ) from += 1;
+	while( to > from && blank( own->bytes[ to - 1 ] ) ) to -= 1;
+	return wire_text_lit( own->bytes + from, to - from );
+}
+
+wire_val wire_text_slice( wire_val text, int64_t from, int64_t to ) {
+	wire_text* own = ( wire_text* ) text.box;
+	int64_t size = point_at( own, own->len );
+	if( from < 0 ) from = 0;
+	if( to > size ) to = size;
+	if( to < from ) to = from;
+	int64_t begin = byte_at( own, from );
+	int64_t end = byte_at( own, to );
+	return wire_text_lit( own->bytes + begin, end - begin );
+}
+
+static int64_t search( wire_text* text, wire_text* part, int64_t from ) {
+	if( part->len == 0 ) return from;
+	for( int64_t i = from; i + part->len <= text->len; ++i ) {
+		if( memcmp( text->bytes + i, part->bytes, part->len ) == 0 ) return i;
+	}
+	return -1;
+}
+
+wire_val wire_text_find( const wire_type* type, wire_val text, wire_val part ) {
+	wire_text* own = ( wire_text* ) text.box;
+	int64_t found = search( own, ( wire_text* ) part.box, 0 );
+	if( found < 0 ) return ( wire_val ){ .box = NULL };
+	return wire_some_new( type, ( wire_val ){ .i = point_at( own, found ) } );
+}
+
+wire_val wire_text_chars( const wire_type* type, wire_val text ) {
+	wire_text* own = ( wire_text* ) text.box;
+	wire_list_builder builder;
+	wire_list_begin( &builder, type );
+	int64_t index = 0;
+	while( index < own->len ) {
+		int64_t end = index + 1;
+		while( end < own->len && tail_byte( own->bytes[ end ] ) ) end += 1;
+		wire_list_add( &builder, wire_text_lit( own->bytes + index, end - index ) );
+		index = end;
+	}
+	return wire_list_end( &builder );
+}
+
+wire_val wire_text_split( const wire_type* type, wire_val text, wire_val separator ) {
+	wire_text* own = ( wire_text* ) text.box;
+	wire_text* sep = ( wire_text* ) separator.box;
+	if( !sep->len ) return wire_text_chars( type, text );
+
+	wire_list_builder builder;
+	wire_list_begin( &builder, type );
+	int64_t from = 0;
+	while( true ) {
+		int64_t found = search( own, sep, from );
+		int64_t end = found < 0 ? own->len : found;
+		wire_list_add( &builder, wire_text_lit( own->bytes + from, end - from ) );
+		if( found < 0 ) break;
+		from = found + sep->len;
+	}
+	return wire_list_end( &builder );
+}
+
+static char* text_cstr( wire_text* text ) {
+	char* raw = grow( NULL, text->len + 1 );
+	memcpy( raw, text->bytes, text->len );
+	raw[ text->len ] = 0;
+	return raw;
+}
+
+wire_val wire_text_int( const wire_type* type, wire_val text ) {
+	wire_text* own = ( wire_text* ) text.box;
+	if( !own->len || blank( own->bytes[ 0 ] ) ) return ( wire_val ){ .box = NULL };
+	char* raw = text_cstr( own );
+	char* end = NULL;
+	long long value = strtoll( raw, &end, 10 );
+	bool whole = *end == 0;
+	free( raw );
+	if( !whole ) return ( wire_val ){ .box = NULL };
+	return wire_some_new( type, ( wire_val ){ .i = value } );
+}
+
+wire_val wire_text_float( const wire_type* type, wire_val text ) {
+	wire_text* own = ( wire_text* ) text.box;
+	if( !own->len || blank( own->bytes[ 0 ] ) ) return ( wire_val ){ .box = NULL };
+	char* raw = text_cstr( own );
+	char* end = NULL;
+	double value = strtod( raw, &end );
+	bool whole = *end == 0;
+	free( raw );
+	if( !whole ) return ( wire_val ){ .box = NULL };
+	return wire_some_new( type, ( wire_val ){ .f = value } );
+}
+
 void wire_buf_lit( wire_buf* buf, const char* bytes, int64_t len ) {
 	if( buf->len + len > buf->cap ) {
 		buf->cap = ( buf->len + len ) * 2 + 16;
