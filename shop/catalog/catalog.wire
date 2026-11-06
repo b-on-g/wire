@@ -1,0 +1,18 @@
+type $bog_wire_shop_price {
+	sku: text
+	price: int
+}
+
+object $bog_wire_shop_catalog {
+
+	solid prices( next?: list $bog_wire_shop_price ) = next ?? []
+
+	sku_of( item: $bog_wire_shop_price ) = item.sku
+
+	price( sku: text ) = prices.find( sku_of, sku )?.price ?? 0
+
+	action set( sku: text, value: int ) {
+		prices( prices.upsert( sku_of, sku, $bog_wire_shop_price{ sku, price: value } ) )
+	}
+
+}

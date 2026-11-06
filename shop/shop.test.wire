@@ -1,0 +1,21 @@
+object $bog_wire_shop_test {
+
+	shop = $bog_wire_shop()
+
+	action total_follows_cart() {
+		shop.catalog.set( "tea", 120 )
+		shop.add( "tea" )
+		shop.add( "tea" )
+		assert( shop.total == 240 )
+	}
+
+	action removed_line_leaves_receipt() {
+		shop.catalog.set( "tea", 120 )
+		shop.catalog.set( "cake", 300 )
+		shop.add( "tea" )
+		shop.add( "cake" )
+		shop.remove( "tea" )
+		assert( shop.receipt == [ "cake x1 = 300", "total 300" ] )
+	}
+
+}

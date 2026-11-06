@@ -1,0 +1,29 @@
+object $bog_wire_shop {
+
+	catalog = $bog_wire_shop_catalog()
+	cart = $bog_wire_shop_cart()
+
+	line( sku: text ) = $bog_wire_shop_line {
+		sku <= sku
+		cart <= cart
+		catalog <= catalog
+	}
+
+	line_sum( line: $bog_wire_shop_line ) = line.sum
+	line_label( line: $bog_wire_shop_line ) = line.label
+
+	lines = cart.skus.map( line )
+
+	total = lines.map( line_sum ).sum
+
+	receipt = [ ... lines.map( line_label ), "total {total}" ]
+
+	action add( sku: text ) {
+		cart.set( sku, cart.qty( sku ) + 1 )
+	}
+
+	action remove( sku: text ) {
+		cart.set( sku, 0 )
+	}
+
+}

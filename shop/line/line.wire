@@ -1,0 +1,13 @@
+object $bog_wire_shop_line {
+
+	sku: text
+	cart: $bog_wire_shop_cart
+	catalog: $bog_wire_shop_catalog
+
+	qty = cart.qty( sku )
+
+	sum = catalog.price( sku ) * qty
+
+	label = "{sku} x{qty} = {sum}"
+
+}
