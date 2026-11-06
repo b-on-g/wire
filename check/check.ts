@@ -11,7 +11,7 @@ namespace $ {
 		| { kind: 'member', owner: string, member: string }
 		| { kind: 'field', record: string, index: number }
 		| { kind: 'list', op: string }
-		| { kind: 'assert' | 'print' }
+		| { kind: 'assert' | 'print' | 'stdin' }
 		| { kind: 'after', owner: string, member: string }
 		| { kind: 'invoke', owner: string, member: string, mode: 'read' | 'write' | 'action' }
 
@@ -83,7 +83,7 @@ namespace $ {
 
 	const prims = new Set([ 'int', 'float', 'bool', 'text' ])
 
-	const builtins = new Set([ 'assert', 'print', 'after' ])
+	const builtins = new Set([ 'assert', 'print', 'after', 'stdin' ])
 
 	export class $bog_wire_check {
 
@@ -170,7 +170,7 @@ namespace $ {
 				if( member.kind === 'action' ) {
 					for( const statement of member.body ) {
 						this.expr( statement, scope )
-						if( !this.effects.has( statement ) ) this.fail( statement.span, 'Statement must write state, call action or assert' )
+						if( !this.effectful( statement, false ) ) this.fail( statement.span, 'Statement must write state, call action or assert' )
 					}
 					continue
 				}
@@ -179,6 +179,13 @@ namespace $ {
 				const body = this.body_type( decl, member )
 				if( !fits( body, value ) ) this.fail( member.body.span, `Expected ${ show( value ) }, got ${ show( body ) }` )
 			}
+		}
+
+		effectful( statement: Expr, branch: boolean ): boolean {
+			if( this.effects.has( statement ) ) return true
+			if( branch && statement.kind === 'none' ) return true
+			if( statement.kind !== 'cond' ) return false
+			return this.effectful( statement.then, true ) && this.effectful( statement.else, true )
 		}
 
 		scope( owner: Owner, member: Exclude< Member, { kind: 'abstract' } > ): Scope {
@@ -428,6 +435,14 @@ namespace $ {
 			const callee = expr.callee
 
 			const builtin = callee.kind === 'name' && builtins.has( callee.name ) && !scope.params.has( callee.name ) && !this.member( scope.owner, callee.name )
+
+			if( builtin && callee.name === 'stdin' ) {
+				if( expr.args.length !== 1 ) return this.fail( expr.span, 'stdin takes one int' )
+				const index = this.expr( expr.args[0], scope )
+				if( !fits( index, int ) ) this.fail( expr.args[0].span, `Expected int, got ${ show( index ) }` )
+				this.refs.set( expr, { kind: 'stdin' } )
+				return maybe( text )
+			}
 
 			if( builtin && callee.name === 'after' ) {
 				if( !scope.action ) return this.fail( expr.span, 'after is allowed only in action' )

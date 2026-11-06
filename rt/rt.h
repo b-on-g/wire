@@ -122,8 +122,7 @@ typedef struct {
 
 typedef struct {
 	const wire_type* type;
-	wire_val* items;
-	int64_t len;
+	int slot;
 	int64_t cap;
 } wire_list_builder;
 
@@ -133,6 +132,11 @@ extern int wire_failures;
 void wire_retain( const wire_type* type, wire_val value );
 void wire_release( const wire_type* type, wire_val value );
 bool wire_eq( const wire_type* type, wire_val left, wire_val right );
+
+wire_val wire_keep( const wire_type* type, wire_val value );
+bool wire_effect( void );
+void wire_wait( void );
+wire_val wire_stdin( int64_t index );
 
 wire_val wire_text_lit( const char* bytes, int64_t len );
 wire_val wire_text_cat( wire_val left, wire_val right );

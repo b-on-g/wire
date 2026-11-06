@@ -210,6 +210,28 @@ namespace $ {
 			] )
 		},
 
+		'stdin and branches in actions'() {
+			$mol_assert_equal( errors(
+				... store,
+				'	line = stdin( size )',
+				'	size = items.size',
+				'	shout: text = line ?? ""',
+				'	bad_index = stdin( "x" )',
+				'	action ok() {',
+				'		line == none ? reset() : print( shout )',
+				'		size > 1 ? reset() : none',
+				'	}',
+				'	action wrong() {',
+				'		size > 1 ? reset() : size',
+				'	}',
+				'}',
+			), [
+				'Expected int, got text @9',
+				'Branches differ: void and int @15',
+				'Statement must write state, call action or assert @15',
+			] )
+		},
+
 		'duplicates'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',

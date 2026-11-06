@@ -5,6 +5,8 @@ namespace $ {
 	type Member = $bog_wire_ast_member
 	type Owner = Extract< $bog_wire_ast_decl, { kind: 'object' } >
 	type Shape = Extract< $bog_wire_ast_decl, { kind: 'record' } >
+	type Field = Extract< Expr, { kind: 'field' } >
+	type Call = Extract< Expr, { kind: 'call' } >
 
 	type Param = { c: string, type: Type }
 
@@ -14,8 +16,6 @@ namespace $ {
 		owner: Owner
 	}
 
-	const boxed = new Set([ 'text', 'list', 'maybe', 'record', 'none' ])
-
 	const kinds: { [ kind: string ]: string } = {
 		int: 'WIRE_INT',
 		float: 'WIRE_FLOAT',
@@ -23,7 +23,6 @@ namespace $ {
 		text: 'WIRE_TEXT',
 		list: 'WIRE_LIST',
 		maybe: 'WIRE_MAYBE',
-		none: 'WIRE_MAYBE',
 		record: 'WIRE_RECORD',
 		object: 'WIRE_OBJECT',
 		void: 'WIRE_VOID',
@@ -92,7 +91,13 @@ namespace $ {
 			return { decl, member: decl.members.find( member => member.name === name )! }
 		}
 
+		descriptor_of( owner: string, name: string ) {
+			return `&M_${ this.c( owner ) }__${ name }`
+		}
+
 		type( type: Type ): string {
+			if( type.kind === 'none' ) return this.type({ kind: 'maybe', item: { kind: 'void' } })
+
 			const id = key( type )
 			const known = this.type_names.get( id )
 			if( known ) return `&${ known }`
@@ -104,9 +109,6 @@ namespace $ {
 			if( type.kind === 'list' || type.kind === 'maybe' ) {
 				const item = this.type( type.item )
 				this.type_defs.push( `static const wire_type ${ name } = { ${ kinds[ type.kind ] }, ${ item }, 0, NULL };` )
-			} else if( type.kind === 'none' ) {
-				const item = this.type({ kind: 'void' })
-				this.type_defs.push( `static const wire_type ${ name } = { WIRE_MAYBE, ${ item }, 0, NULL };` )
 			} else if( type.kind === 'record' ) {
 				const shape = this.decl( type.name ) as Shape
 				const fields = shape.fields.map( field => this.type( this.check.type( field.type ) ) )
@@ -125,14 +127,6 @@ namespace $ {
 
 		of( expr: Expr ) {
 			return this.check.types.get( expr )!
-		}
-
-		release( ctx: Ctx, name: string, type: Type ) {
-			if( name && boxed.has( type.kind ) ) ctx.lines.push( `wire_release( ${ this.type( type ) }, ${ name } );` )
-		}
-
-		retain( ctx: Ctx, name: string, type: Type ) {
-			if( boxed.has( type.kind ) ) ctx.lines.push( `wire_retain( ${ this.type( type ) }, ${ name } );` )
 		}
 
 		coerce( ctx: Ctx, name: string, from: Type, to: Type ) {
@@ -202,7 +196,6 @@ namespace $ {
 			} else {
 				const scope = this.check.scopes.get( member )!
 				let index = 0
-				let next = ''
 
 				for( const param of member.params ) {
 					const type = scope.params.get( param.name )!
@@ -210,21 +203,15 @@ namespace $ {
 						ctx.params.set( param.name, { c: `keys[ ${ index++ } ]`, type } )
 						continue
 					}
-					next = 'p_next'
 					const declared = this.check.type( param.type )
 					ctx.lines.push( `wire_val p_next = { .box = NULL };` )
-					if( declared.kind === 'maybe' ) {
-						ctx.lines.push( `if( next ) { p_next = *next; wire_retain( ${ this.type( type ) }, p_next ); }` )
-					} else {
-						ctx.lines.push( `if( next ) { wire_val held = *next; wire_retain( ${ this.type( declared ) }, held ); p_next = wire_some_new( ${ this.type( type ) }, held ); }` )
-					}
+					if( declared.kind === 'maybe' ) ctx.lines.push( `if( next ) p_next = *next;` )
+					else ctx.lines.push( `if( next ) p_next = wire_some_new( ${ this.type( type ) }, *next );` )
 					ctx.params.set( param.name, { c: 'p_next', type } )
 				}
 
 				const result = this.expr( member.body, ctx )
-				const value = this.coerce( ctx, result, this.of( member.body ), this.check.value_type( owner, member ) )
-				ctx.lines.push( `*out = ${ value };` )
-				if( next ) this.release( ctx, next, ctx.params.get( member.params.at( -1 )!.name )!.type )
+				ctx.lines.push( `*out = ${ this.coerce( ctx, result, this.of( member.body ), this.check.value_type( owner, member ) ) };` )
 			}
 
 			this.bodies.push( [
@@ -244,10 +231,7 @@ namespace $ {
 				ctx.params.set( param.name, { c: `args[ ${ index } ]`, type: scope.params.get( param.name )! } )
 			} )
 
-			for( const statement of member.body ) {
-				const result = this.expr( statement, ctx )
-				this.release( ctx, result, this.of( statement ) )
-			}
+			for( const statement of member.body ) this.statement( statement, ctx )
 
 			this.protos.push( `static void A_${ name }( wire_obj* self, const wire_val* args );` )
 			this.bodies.push( [
@@ -258,23 +242,32 @@ namespace $ {
 			].join( '\n' ) )
 		}
 
-		args( ctx: Ctx, args: Expr[], types: Type[] ) {
-			const values = args.map( ( arg, index ) => this.coerce( ctx, this.expr( arg, ctx ), this.of( arg ), types[ index ] ) )
-			if( !values.length ) return { array: 'NULL', values, types }
-			const array = this.temp()
-			ctx.lines.push( `wire_val ${ array }[] = { ${ values.join( ', ' ) } };` )
-			return { array, values, types }
+		statement( statement: Expr, ctx: Ctx ) {
+			if( statement.kind === 'none' ) return
+
+			if( statement.kind === 'cond' ) {
+				const test = this.expr( statement.test, ctx )
+				ctx.lines.push( `if( ${ test }.b ) {` )
+				ctx.lines.push( ... this.block( ctx, ()=> this.statement( statement.then, ctx ) ) )
+				ctx.lines.push( `} else {` )
+				ctx.lines.push( ... this.block( ctx, ()=> this.statement( statement.else, ctx ) ) )
+				ctx.lines.push( `}` )
+				return
+			}
+
+			this.expr( statement, ctx )
 		}
 
-		release_args( ctx: Ctx, args: { values: string[], types: Type[] } ) {
-			args.values.forEach( ( value, index ) => this.release( ctx, value, args.types[ index ] ) )
+		args( ctx: Ctx, args: Expr[], types: Type[] ) {
+			const values = args.map( ( arg, index ) => this.coerce( ctx, this.expr( arg, ctx ), this.of( arg ), types[ index ] ) )
+			if( !values.length ) return 'NULL'
+			const array = this.temp()
+			ctx.lines.push( `wire_val ${ array }[] = { ${ values.join( ', ' ) } };` )
+			return array
 		}
 
 		target( ctx: Ctx, callee: Expr ) {
-			if( callee.kind === 'field' ) {
-				const target = this.expr( callee.target, ctx )
-				return `${ target }.obj`
-			}
+			if( callee.kind === 'field' ) return `${ this.expr( callee.target, ctx ) }.obj`
 			return 'self'
 		}
 
@@ -303,19 +296,18 @@ namespace $ {
 						push( `wire_val ${ out } = wire_text_lit( ${ cstr( text ) }, ${ bytes( text ) } );` )
 						return out
 					}
+					const values = expr.parts.map( part => typeof part === 'string' ? null : this.expr( part, ctx ) )
 					const buf = this.temp()
 					push( `wire_buf ${ buf } = { 0 };` )
-					for( const part of expr.parts ) {
+					expr.parts.forEach( ( part, index ) => {
 						if( typeof part === 'string' ) {
 							push( `wire_buf_lit( &${ buf }, ${ cstr( part ) }, ${ bytes( part ) } );` )
-							continue
+							return
 						}
-						const value = this.expr( part, ctx )
 						const kind = this.of( part ).kind
-						if( kind === 'text' ) push( `wire_buf_text( &${ buf }, ${ value } );` )
-						else push( `wire_buf_${ kind }( &${ buf }, ${ value }.${ kind === 'int' ? 'i' : kind === 'float' ? 'f' : 'b' } );` )
-						this.release( ctx, value, this.of( part ) )
-					}
+						if( kind === 'text' ) push( `wire_buf_text( &${ buf }, ${ values[ index ] } );` )
+						else push( `wire_buf_${ kind }( &${ buf }, ${ values[ index ] }.${ kind === 'int' ? 'i' : kind === 'float' ? 'f' : 'b' } );` )
+					} )
 					push( `wire_val ${ out } = wire_buf_done( &${ buf } );` )
 					return out
 				}
@@ -323,37 +315,27 @@ namespace $ {
 				case 'name': {
 					const ref = this.check.refs.get( expr )!
 					if( ref.kind === 'param' ) {
-						const param = ctx.params.get( expr.name )!
-						push( `wire_val ${ out } = ${ param.c };` )
-						this.retain( ctx, out, param.type )
+						push( `wire_val ${ out } = ${ ctx.params.get( expr.name )!.c };` )
 						return out
 					}
-					const { decl, member } = this.member( ( ref as { owner: string } ).owner, expr.name )
-					push( `wire_val ${ out } = wire_read( self, &M_${ this.c( decl.name ) }__${ member.name }, NULL, NULL );` )
+					const member = ref as { owner: string, member: string }
+					push( `wire_val ${ out } = wire_read( self, ${ this.descriptor_of( member.owner, member.member ) }, NULL, NULL );` )
 					return out
 				}
 
 				case 'field': {
 					const target = this.expr( expr.target, ctx )
-					const target_type = this.of( expr.target )
+					if( !expr.maybe ) return this.access( ctx, expr, target )
 
-					if( !expr.maybe ) {
-						const value = this.access( ctx, expr, target )
-						this.release( ctx, target, target_type )
-						return value
-					}
-
-					const inner = this.temp()
 					push( `wire_val ${ out } = { .box = NULL };` )
 					push( `if( ${ target }.box ) {` )
 					ctx.lines.push( ... this.block( ctx, ()=> {
+						const inner = this.temp()
 						push( `wire_val ${ inner } = ( ( wire_some* ) ${ target }.box )->value;` )
 						const value = this.access( ctx, expr, inner )
-						const field = this.field_type( expr )
-						push( `${ out } = ${ this.coerce( ctx, value, field, type ) };` )
+						push( `${ out } = ${ this.coerce( ctx, value, this.field_type( expr ), type ) };` )
 					} ) )
 					push( `}` )
-					this.release( ctx, target, target_type )
 					return out
 				}
 
@@ -368,9 +350,7 @@ namespace $ {
 					push( `wire_list_begin( &${ builder }, ${ this.type( type ) } );` )
 					for( const entry of expr.items ) {
 						if( entry.kind === 'spread' ) {
-							const spread = this.expr( entry.value, ctx )
-							push( `wire_list_add_all( &${ builder }, ${ spread } );` )
-							this.release( ctx, spread, this.of( entry.value ) )
+							push( `wire_list_add_all( &${ builder }, ${ this.expr( entry.value, ctx ) } );` )
 							continue
 						}
 						const value = this.coerce( ctx, this.expr( entry, ctx ), this.of( entry ), item )
@@ -395,13 +375,11 @@ namespace $ {
 					push( `wire_val ${ out };` )
 					push( `if( ${ test }.b ) {` )
 					ctx.lines.push( ... this.block( ctx, ()=> {
-						const value = this.expr( expr.then, ctx )
-						push( `${ out } = ${ this.coerce( ctx, value, this.of( expr.then ), type ) };` )
+						push( `${ out } = ${ this.coerce( ctx, this.expr( expr.then, ctx ), this.of( expr.then ), type ) };` )
 					} ) )
 					push( `} else {` )
 					ctx.lines.push( ... this.block( ctx, ()=> {
-						const value = this.expr( expr.else, ctx )
-						push( `${ out } = ${ this.coerce( ctx, value, this.of( expr.else ), type ) };` )
+						push( `${ out } = ${ this.coerce( ctx, this.expr( expr.else, ctx ), this.of( expr.else ), type ) };` )
 					} ) )
 					push( `}` )
 					return out
@@ -412,7 +390,7 @@ namespace $ {
 			}
 		}
 
-		field_type( expr: Extract< Expr, { kind: 'field' } > ): Type {
+		field_type( expr: Field ): Type {
 			const ref = this.check.refs.get( expr )!
 			if( ref.kind === 'member' ) {
 				const { decl, member } = this.member( ref.owner, ref.member )
@@ -422,18 +400,18 @@ namespace $ {
 				const shape = this.decl( ref.record ) as Shape
 				return this.check.type( shape.fields[ ref.index ].type )
 			}
+			if( ( ref as { op: string } ).op === 'size' ) return { kind: 'int' }
 			const target = this.of( expr.target )
 			const list = ( target.kind === 'maybe' ? target.item : target ) as { item: Type }
-			if( ( ref as { op: string } ).op === 'size' ) return { kind: 'int' }
 			return list.item.kind === 'never' ? { kind: 'int' } : list.item
 		}
 
-		access( ctx: Ctx, expr: Extract< Expr, { kind: 'field' } >, target: string ): string {
+		access( ctx: Ctx, expr: Field, target: string ): string {
 			const ref = this.check.refs.get( expr )!
 			const out = this.temp()
 
 			if( ref.kind === 'member' ) {
-				ctx.lines.push( `wire_val ${ out } = wire_read( ${ target }.obj, &M_${ this.c( ref.owner ) }__${ ref.member }, NULL, NULL );` )
+				ctx.lines.push( `wire_val ${ out } = wire_read( ${ target }.obj, ${ this.descriptor_of( ref.owner, ref.member ) }, NULL, NULL );` )
 			} else if( ref.kind === 'field' ) {
 				ctx.lines.push( `wire_val ${ out } = wire_record_get( ${ target }, ${ ref.index } );` )
 			} else if( ref.kind === 'list' && ref.op === 'size' ) {
@@ -449,116 +427,102 @@ namespace $ {
 			const ref = this.check.refs.get( arg ) as { owner: string, member: string }
 			const owner = arg.kind === 'field' ? `${ this.expr( arg.target, ctx ) }.obj` : 'self'
 			const { decl, member } = this.member( ref.owner, ref.member )
-			return { owner, descriptor: `&M_${ this.c( decl.name ) }__${ member.name }`, value: this.check.value_type( decl, member ) }
+			return { owner, descriptor: this.descriptor_of( decl.name, member.name ), value: this.check.value_type( decl, member ) }
 		}
 
-		call( expr: Extract< Expr, { kind: 'call' } >, ctx: Ctx, out: string ): string {
+		effect( ctx: Ctx, task: ()=> void ) {
+			ctx.lines.push( `if( wire_effect() ) {` )
+			ctx.lines.push( ... this.block( ctx, task ) )
+			ctx.lines.push( `}` )
+		}
+
+		call( expr: Call, ctx: Ctx, out: string ): string {
 			const ref = this.check.refs.get( expr )!
 			const push = ( line: string )=> ctx.lines.push( line )
 
 			if( ref.kind === 'assert' ) {
 				const value = this.expr( expr.args[0], ctx )
-				push( `wire_assert( ${ value }.b, ${ cstr( `${ expr.span.uri }:${ expr.span.row }:${ expr.span.col }` ) } );` )
+				const where = cstr( `${ expr.span.uri }:${ expr.span.row }:${ expr.span.col }` )
+				this.effect( ctx, ()=> push( `wire_assert( ${ value }.b, ${ where } );` ) )
 				return ''
 			}
 
 			if( ref.kind === 'print' ) {
 				const value = this.expr( expr.args[0], ctx )
-				push( `wire_print( ${ value } );` )
-				this.release( ctx, value, { kind: 'text' } )
+				this.effect( ctx, ()=> push( `wire_print( ${ value } );` ) )
 				return ''
 			}
 
 			if( ref.kind === 'after' ) {
 				const arg = expr.args[0]
 				const owner = arg.kind === 'field' ? `${ this.expr( arg.target, ctx ) }.obj` : 'self'
-				push( `wire_after( ${ owner }, A_${ this.c( ref.owner ) }__${ ref.member } );` )
+				this.effect( ctx, ()=> push( `wire_after( ${ owner }, A_${ this.c( ref.owner ) }__${ ref.member } );` ) )
 				return ''
 			}
 
-			if( ref.kind === 'list' && ref.op === 'join' ) {
-				const callee = expr.callee as Extract< Expr, { kind: 'field' } >
-				const list = this.expr( callee.target, ctx )
-				const separator = this.expr( expr.args[0], ctx )
-				push( `wire_val ${ out } = wire_list_join( ${ list }, ${ separator } );` )
-				this.release( ctx, list, this.of( callee.target ) )
-				this.release( ctx, separator, { kind: 'text' } )
+			if( ref.kind === 'stdin' ) {
+				const index = this.expr( expr.args[0], ctx )
+				push( `wire_val ${ out } = wire_stdin( ${ index }.i );` )
 				return out
 			}
 
-			if( ref.kind === 'list' ) {
-				const callee = expr.callee as Extract< Expr, { kind: 'field' } >
-				const list = this.expr( callee.target, ctx )
-				const list_type = this.of( callee.target )
-				const type = this.of( expr )
-				const fn = this.method( ctx, expr.args[0] )
-				const item = ( type as { item: Type } ).item
-
-				const value_of = ( index: number, target: Type )=> {
-					const value = this.coerce( ctx, this.expr( expr.args[ index ], ctx ), this.of( expr.args[ index ] ), target )
-					return value
-				}
-
-				switch( ref.op ) {
-					case 'map':
-						push( `wire_val ${ out } = wire_list_map( ${ this.type( type ) }, ${ list }, ${ fn.owner }, ${ fn.descriptor } );` )
-						break
-					case 'sort':
-						push( `wire_val ${ out } = wire_list_sort( ${ this.type( type ) }, ${ list }, ${ fn.owner }, ${ fn.descriptor } );` )
-						break
-					case 'find': {
-						const key = value_of( 1, fn.value )
-						push( `wire_val ${ out } = wire_list_find( ${ this.type( type ) }, ${ list }, ${ fn.owner }, ${ fn.descriptor }, ${ key } );` )
-						this.release( ctx, key, fn.value )
-						break
-					}
-					case 'drop': {
-						const key = value_of( 1, fn.value )
-						push( `wire_val ${ out } = wire_list_drop( ${ this.type( type ) }, ${ list }, ${ fn.owner }, ${ fn.descriptor }, ${ key } );` )
-						this.release( ctx, key, fn.value )
-						break
-					}
-					case 'upsert': {
-						const key = value_of( 1, fn.value )
-						const value = value_of( 2, item )
-						push( `wire_val ${ out } = wire_list_upsert( ${ this.type( type ) }, ${ list }, ${ fn.owner }, ${ fn.descriptor }, ${ key }, ${ value } );` )
-						this.release( ctx, key, fn.value )
-						this.release( ctx, value, item )
-						break
-					}
-				}
-
-				this.release( ctx, list, list_type )
-				return out
-			}
+			if( ref.kind === 'list' ) return this.list_call( expr, ref.op, ctx, out )
 
 			const invoke = ref as Extract< $bog_wire_check_ref, { kind: 'invoke' } >
 			const { decl, member } = this.member( invoke.owner, invoke.member )
 			const owner = this.target( ctx, expr.callee )
-			const name = `${ this.c( decl.name ) }__${ member.name }`
 			const params = ( member as Exclude< Member, { kind: 'abstract' } > ).params.map( param => this.check.type( param.type ) )
 
 			if( invoke.mode === 'action' ) {
 				const args = this.args( ctx, expr.args, params )
-				push( `A_${ name }( ${ owner }, ${ args.array } );` )
-				this.release_args( ctx, args )
+				push( `A_${ this.c( decl.name ) }__${ member.name }( ${ owner }, ${ args } );` )
 				return ''
 			}
 
+			const descriptor = this.descriptor_of( decl.name, member.name )
 			const keys = this.check.keys( member ).length
 			const args = this.args( ctx, expr.args.slice( 0, keys ), params.slice( 0, keys ) )
 
 			if( invoke.mode === 'read' ) {
-				push( `wire_val ${ out } = wire_read( ${ owner }, &M_${ name }, ${ args.array }, NULL );` )
-				this.release_args( ctx, args )
+				push( `wire_val ${ out } = wire_read( ${ owner }, ${ descriptor }, ${ args }, NULL );` )
 				return out
 			}
 
-			const next_type = params[ keys ]
-			const next = this.coerce( ctx, this.expr( expr.args[ keys ], ctx ), this.of( expr.args[ keys ] ), next_type )
-			push( `wire_val ${ out } = wire_read( ${ owner }, &M_${ name }, ${ args.array }, &${ next } );` )
-			this.release_args( ctx, args )
-			this.release( ctx, next, next_type )
+			const next = this.coerce( ctx, this.expr( expr.args[ keys ], ctx ), this.of( expr.args[ keys ] ), params[ keys ] )
+			push( `wire_val ${ out };` )
+			push( `if( wire_effect() ) ${ out } = wire_read( ${ owner }, ${ descriptor }, ${ args }, &${ next } );` )
+			push( `else ${ out } = wire_read( ${ owner }, ${ descriptor }, ${ args }, NULL );` )
+			return out
+		}
+
+		list_call( expr: Call, op: string, ctx: Ctx, out: string ) {
+			const push = ( line: string )=> ctx.lines.push( line )
+			const callee = expr.callee as Field
+			const list = this.expr( callee.target, ctx )
+			const type = this.of( expr )
+
+			if( op === 'join' ) {
+				push( `wire_val ${ out } = wire_list_join( ${ list }, ${ this.expr( expr.args[0], ctx ) } );` )
+				return out
+			}
+
+			const fn = this.method( ctx, expr.args[0] )
+			const head = `${ this.type( type ) }, ${ list }, ${ fn.owner }, ${ fn.descriptor }`
+			const value_of = ( index: number, target: Type )=> this.coerce( ctx, this.expr( expr.args[ index ], ctx ), this.of( expr.args[ index ] ), target )
+
+			switch( op ) {
+				case 'map': push( `wire_val ${ out } = wire_list_map( ${ head } );` ); break
+				case 'sort': push( `wire_val ${ out } = wire_list_sort( ${ head } );` ); break
+				case 'find': push( `wire_val ${ out } = wire_list_find( ${ head }, ${ value_of( 1, fn.value ) } );` ); break
+				case 'drop': push( `wire_val ${ out } = wire_list_drop( ${ head }, ${ value_of( 1, fn.value ) } );` ); break
+				case 'upsert': {
+					const item = ( type as { item: Type } ).item
+					const key = value_of( 1, fn.value )
+					push( `wire_val ${ out } = wire_list_upsert( ${ head }, ${ key }, ${ value_of( 2, item ) } );` )
+					break
+				}
+			}
+
 			return out
 		}
 
@@ -569,8 +533,7 @@ namespace $ {
 			if( decl.kind === 'record' ) {
 				const values = decl.fields.map( field => {
 					const entry = expr.entries.find( entry => entry.name === field.name )!
-					const value = this.expr( entry.value!, ctx )
-					return this.coerce( ctx, value, this.of( entry.value! ), this.check.type( field.type ) )
+					return this.coerce( ctx, this.expr( entry.value!, ctx ), this.of( entry.value! ), this.check.type( field.type ) )
 				} )
 				const fields = this.temp()
 				push( `wire_val ${ fields }[] = { ${ values.join( ', ' ) } };` )
@@ -595,8 +558,7 @@ namespace $ {
 
 				for( const entry of expr.entries ) {
 					const member = decl.members.find( member => member.name === entry.name )!
-					const site = this.site( ctx, entry.value!, this.check.value_type( decl, member ) )
-					push( `${ obj }->binds[ ${ this.binds.get( member ) } ] = ${ site };` )
+					push( `${ obj }->binds[ ${ this.binds.get( member ) } ] = ${ this.site( ctx, entry.value!, this.check.value_type( decl, member ) ) };` )
 				}
 			}
 
@@ -613,8 +575,7 @@ namespace $ {
 				ctx.params.set( param, { c: `cap[ ${ index++ } ]`, type: info.type } )
 			}
 
-			const result = this.coerce( ctx, this.expr( value, ctx ), this.of( value ), type )
-			ctx.lines.push( `*out = ${ result };` )
+			ctx.lines.push( `*out = ${ this.coerce( ctx, this.expr( value, ctx ), this.of( value ), type ) };` )
 
 			this.protos.push( `static void ${ name }( wire_obj* child, wire_val* out );` )
 			this.bodies.push( [
@@ -639,21 +600,14 @@ namespace $ {
 				push( `wire_val ${ out };` )
 				push( `if( ${ left }.box ) {` )
 				ctx.lines.push( ... this.block( ctx, ()=> {
-					if( type.kind === 'maybe' ) {
-						push( `${ out } = ${ left };` )
-						this.retain( ctx, out, type )
-					} else {
-						push( `${ out } = ( ( wire_some* ) ${ left }.box )->value;` )
-						this.retain( ctx, out, type )
-					}
+					if( type.kind === 'maybe' ) push( `${ out } = ${ left };` )
+					else push( `${ out } = ( ( wire_some* ) ${ left }.box )->value;` )
 				} ) )
 				push( `} else {` )
 				ctx.lines.push( ... this.block( ctx, ()=> {
-					const right = this.expr( expr.right, ctx )
-					push( `${ out } = ${ this.coerce( ctx, right, this.of( expr.right ), type ) };` )
+					push( `${ out } = ${ this.coerce( ctx, this.expr( expr.right, ctx ), this.of( expr.right ), type ) };` )
 				} ) )
 				push( `}` )
-				this.release( ctx, left, left_type )
 				return out
 			}
 
@@ -665,38 +619,30 @@ namespace $ {
 			switch( expr.op ) {
 
 				case '+': case '-': case '*': case '/': case '%':
-					if( left_type.kind === 'text' ) {
-						push( `wire_val ${ out } = wire_text_cat( ${ left }, ${ right } );` )
-					} else if( expr.op === '%' && field === 'f' ) {
-						push( `wire_val ${ out } = { .f = fmod( ${ left }.f, ${ right }.f ) };` )
-					} else {
-						push( `wire_val ${ out } = { .${ field } = ${ left }.${ field } ${ expr.op } ${ right }.${ field } };` )
-					}
-					break
+					if( left_type.kind === 'text' ) push( `wire_val ${ out } = wire_text_cat( ${ left }, ${ right } );` )
+					else if( expr.op === '%' && field === 'f' ) push( `wire_val ${ out } = { .f = fmod( ${ left }.f, ${ right }.f ) };` )
+					else push( `wire_val ${ out } = { .${ field } = ${ left }.${ field } ${ expr.op } ${ right }.${ field } };` )
+					return out
 
 				case '<': case '<=': case '>': case '>=':
 					if( left_type.kind === 'text' ) push( `wire_val ${ out } = { .b = wire_text_cmp( ${ left }, ${ right } ) ${ expr.op } 0 };` )
 					else push( `wire_val ${ out } = { .b = ${ left }.${ field } ${ expr.op } ${ right }.${ field } };` )
-					break
+					return out
 
 				case '==': case '!=': {
 					const united = this.unite( left_type, right_type )
 					const a = this.coerce( ctx, left, left_type, united )
 					const b = this.coerce( ctx, right, right_type, united )
 					push( `wire_val ${ out } = { .b = ${ expr.op === '!=' ? '!' : '' }wire_eq( ${ this.type( united ) }, ${ a }, ${ b } ) };` )
-					this.release( ctx, a, united )
-					this.release( ctx, b, united )
 					return out
 				}
 
 				case '&&': case '||':
 					push( `wire_val ${ out } = { .b = ${ left }.b ${ expr.op } ${ right }.b };` )
-					break
+					return out
 
 			}
 
-			this.release( ctx, left, left_type )
-			this.release( ctx, right, right_type )
 			return out
 		}
 

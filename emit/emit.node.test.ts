@@ -1,6 +1,6 @@
 namespace $ {
 
-	function build( sources: { uri: string, text: string }[], mode: 'test' | 'native' = 'test' ) {
+	function build( sources: { uri: string, text: string }[], mode: 'test' | 'native' = 'test', input = '' ) {
 		const modules = sources.map( source => $bog_wire_parse( source.text, source.uri ) )
 		const check = new $bog_wire_check( modules )
 		if( check.errors.length ) $mol_fail( new Error( check.errors.map( error => error.message ).join( '\n' ) ) )
@@ -12,7 +12,7 @@ namespace $ {
 		const cc = $node.child_process.spawnSync( 'zig', [ 'cc', '-std=c11', '-O1', '-Werror', '-Wno-unused-variable', '-o', 'test', 'test.c', 'rt.c' ], { cwd: dir, encoding: 'utf8' } )
 		if( cc.status ) $mol_fail( new Error( cc.stderr ) )
 
-		const run = $node.child_process.spawnSync( './test', [], { cwd: dir, encoding: 'utf8' } )
+		const run = $node.child_process.spawnSync( './test', [], { cwd: dir, encoding: 'utf8', input } )
 		$node.fs.rmSync( dir, { recursive: true, force: true } )
 		return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 	}
@@ -73,6 +73,69 @@ namespace $ {
 				].join( '\n' ),
 			}], 'native' )
 			$mol_assert_equal( result, { status: 0, stdout: 'first\na,b\n', stderr: '' } )
+		},
+
+		'repl waits for each line'() {
+			const result = build([{
+				uri: 'bog/wire/emit/case.native.wire',
+				text: [
+					'object $bog_wire_emit_case {',
+					'	solid seen( next?: int ) = next ?? 0',
+					'	line = stdin( seen )',
+					'	said = line ?? ""',
+					'	shout = "> {said}"',
+					'	action main() {',
+					'		step()',
+					'	}',
+					'	action step() {',
+					'		line == none ? print( "bye" ) : echo()',
+					'	}',
+					'	action echo() {',
+					'		print( shout )',
+					'		seen( seen + 1 )',
+					'		after( step )',
+					'	}',
+					'}',
+				].join( '\n' ),
+			}], 'native', 'a\nb\n' )
+			$mol_assert_equal( result, { status: 0, stdout: '> a\n> b\nbye\n', stderr: '' } )
+		},
+
+		'action retry skips done effects'() {
+			const result = build([{
+				uri: 'bog/wire/emit/case.native.wire',
+				text: [
+					'object $bog_wire_emit_case {',
+					'	solid count( next?: int ) = next ?? 0',
+					'	prefix = "<"',
+					'	first = prefix + ( stdin( 0 ) ?? "-" )',
+					'	second = stdin( 1 ) ?? "-"',
+					'	action main() {',
+					'		print( "start" )',
+					'		count( count + 1 )',
+					'		print( "got {first}" )',
+					'		count( count + 1 )',
+					'		print( "then {second}" )',
+					'		print( "count {count}" )',
+					'	}',
+					'}',
+				].join( '\n' ),
+			}], 'native', 'x\ny' )
+			$mol_assert_equal( result, { status: 0, stdout: 'start\ngot <x\nthen y\ncount 2\n', stderr: '' } )
+		},
+
+		'stdin is empty in tests'() {
+			const result = build([{
+				uri: 'bog/wire/emit/case.test.wire',
+				text: [
+					'object $bog_wire_emit_case {',
+					'	action empty() {',
+					'		assert( stdin( 0 ) == none )',
+					'	}',
+					'}',
+				].join( '\n' ),
+			}], 'test', 'ignored\n' )
+			$mol_assert_equal( result, { status: 0, stdout: 'ok $bog_wire_emit_case.empty\n', stderr: '' } )
 		},
 
 		'failed assert fails the test'() {

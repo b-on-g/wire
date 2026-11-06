@@ -1,5 +1,6 @@
 #include "rt.h"
 
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,8 +9,11 @@ int64_t wire_live = 0;
 int wire_failures = 0;
 
 static const wire_type text_type = { WIRE_TEXT, NULL, 0, NULL };
+static const wire_type int_type = { WIRE_INT, NULL, 0, NULL };
+static const wire_type maybe_text_type = { WIRE_MAYBE, &text_type, 0, NULL };
 
 static void fail( const char* message ) {
+	fflush( stdout );
 	fprintf( stderr, "$bog_wire: %s\n", message );
 	abort();
 }
@@ -81,6 +85,40 @@ void wire_release( const wire_type* type, wire_val value ) {
 	box_free( value.box );
 }
 
+typedef struct {
+	const wire_type* type;
+	wire_val value;
+	void* raw;
+} wire_held;
+
+static struct {
+	wire_held* items;
+	int len;
+	int cap;
+} scope;
+
+static int hold( const wire_type* type, wire_val value, void* raw ) {
+	if( scope.len == scope.cap ) {
+		scope.cap = scope.cap * 2 + 64;
+		scope.items = grow( scope.items, sizeof( wire_held ) * scope.cap );
+	}
+	scope.items[ scope.len ] = ( wire_held ){ type, value, raw };
+	return scope.len++;
+}
+
+static void scope_end( int mark ) {
+	while( scope.len > mark ) {
+		wire_held held = scope.items[ --scope.len ];
+		if( held.raw ) free( held.raw );
+		else wire_release( held.type, held.value );
+	}
+}
+
+wire_val wire_keep( const wire_type* type, wire_val value ) {
+	if( boxed( type ) && value.box ) hold( type, value, NULL );
+	return value;
+}
+
 bool wire_eq( const wire_type* type, wire_val left, wire_val right ) {
 	switch( type->kind ) {
 
@@ -137,10 +175,14 @@ static wire_text* text_new( int64_t len ) {
 	return text;
 }
 
-wire_val wire_text_lit( const char* bytes, int64_t len ) {
+static wire_val text_raw( const char* bytes, int64_t len ) {
 	wire_text* text = text_new( len );
 	memcpy( text->bytes, bytes, len );
 	return ( wire_val ){ .box = &text->head };
+}
+
+wire_val wire_text_lit( const char* bytes, int64_t len ) {
+	return wire_keep( &text_type, text_raw( bytes, len ) );
 }
 
 wire_val wire_text_cat( wire_val left, wire_val right ) {
@@ -149,7 +191,7 @@ wire_val wire_text_cat( wire_val left, wire_val right ) {
 	wire_text* text = text_new( a->len + b->len );
 	memcpy( text->bytes, a->bytes, a->len );
 	memcpy( text->bytes + a->len, b->bytes, b->len );
-	return ( wire_val ){ .box = &text->head };
+	return wire_keep( &text_type, ( wire_val ){ .box = &text->head } );
 }
 
 int wire_text_cmp( wire_val left, wire_val right ) {
@@ -200,57 +242,55 @@ wire_val wire_buf_done( wire_buf* buf ) {
 }
 
 wire_val wire_some_new( const wire_type* type, wire_val inner ) {
+	wire_retain( type->item, inner );
 	wire_some* some = box_alloc( sizeof( wire_some ) );
 	some->head.rc = 1;
 	some->head.type = type;
 	some->value = inner;
-	return ( wire_val ){ .box = &some->head };
+	return wire_keep( type, ( wire_val ){ .box = &some->head } );
 }
 
 wire_val wire_record_new( const wire_type* type, const wire_val* fields ) {
 	wire_record* record = box_alloc( sizeof( wire_record ) + sizeof( wire_val ) * type->fields );
 	record->head.rc = 1;
 	record->head.type = type;
-	memcpy( record->fields, fields, sizeof( wire_val ) * type->fields );
-	return ( wire_val ){ .box = &record->head };
+	for( int i = 0; i < type->fields; ++i ) {
+		wire_retain( type->field_types[ i ], fields[ i ] );
+		record->fields[ i ] = fields[ i ];
+	}
+	return wire_keep( type, ( wire_val ){ .box = &record->head } );
 }
 
 wire_val wire_record_get( wire_val record, int index ) {
 	wire_record* own = ( wire_record* ) record.box;
-	wire_val value = own->fields[ index ];
-	wire_retain( own->head.type->field_types[ index ], value );
-	return value;
+	return own->fields[ index ];
 }
 
 void wire_list_begin( wire_list_builder* builder, const wire_type* type ) {
-	*builder = ( wire_list_builder ){ type, NULL, 0, 0 };
+	wire_list* list = box_alloc( sizeof( wire_list ) + sizeof( wire_val ) * 4 );
+	list->head.rc = 1;
+	list->head.type = type;
+	*builder = ( wire_list_builder ){ type, hold( type, ( wire_val ){ .box = &list->head }, NULL ), 4 };
 }
 
 void wire_list_add( wire_list_builder* builder, wire_val item ) {
-	if( builder->len == builder->cap ) {
-		builder->cap = builder->cap * 2 + 4;
-		builder->items = grow( builder->items, sizeof( wire_val ) * builder->cap );
+	wire_list* list = ( wire_list* ) scope.items[ builder->slot ].value.box;
+	if( list->len == builder->cap ) {
+		builder->cap = builder->cap * 2;
+		list = grow( list, sizeof( wire_list ) + sizeof( wire_val ) * builder->cap );
+		scope.items[ builder->slot ].value.box = &list->head;
 	}
-	builder->items[ builder->len++ ] = item;
+	wire_retain( builder->type->item, item );
+	list->items[ list->len++ ] = item;
 }
 
 void wire_list_add_all( wire_list_builder* builder, wire_val list ) {
 	wire_list* own = ( wire_list* ) list.box;
-	for( int64_t i = 0; i < own->len; ++i ) {
-		wire_retain( builder->type->item, own->items[ i ] );
-		wire_list_add( builder, own->items[ i ] );
-	}
+	for( int64_t i = 0; i < own->len; ++i ) wire_list_add( builder, own->items[ i ] );
 }
 
 wire_val wire_list_end( wire_list_builder* builder ) {
-	wire_list* list = box_alloc( sizeof( wire_list ) + sizeof( wire_val ) * builder->len );
-	list->head.rc = 1;
-	list->head.type = builder->type;
-	list->len = builder->len;
-	if( builder->len ) memcpy( list->items, builder->items, sizeof( wire_val ) * builder->len );
-	free( builder->items );
-	*builder = ( wire_list_builder ){ 0 };
-	return ( wire_val ){ .box = &list->head };
+	return scope.items[ builder->slot ].value;
 }
 
 static wire_val key_of( wire_obj* owner, const wire_member* member, wire_val item ) {
@@ -266,10 +306,7 @@ wire_val wire_list_map( const wire_type* type, wire_val list, wire_obj* owner, c
 }
 
 static bool key_match( wire_obj* owner, const wire_member* member, wire_val item, wire_val key ) {
-	wire_val value = key_of( owner, member, item );
-	bool match = wire_eq( member->type, value, key );
-	wire_release( member->type, value );
-	return match;
+	return wire_eq( member->type, key_of( owner, member, item ), key );
 }
 
 wire_val wire_list_find( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member, wire_val key ) {
@@ -278,7 +315,6 @@ wire_val wire_list_find( const wire_type* type, wire_val list, wire_obj* owner, 
 
 	for( int64_t i = 0; i < own->len; ++i ) {
 		if( !key_match( owner, member, own->items[ i ], key ) ) continue;
-		wire_retain( item, own->items[ i ] );
 		if( item->kind == WIRE_MAYBE ) return own->items[ i ];
 		return wire_some_new( type, own->items[ i ] );
 	}
@@ -298,14 +334,10 @@ wire_val wire_list_upsert( const wire_type* type, wire_val list, wire_obj* owner
 			found = true;
 			item = value;
 		}
-		wire_retain( type->item, item );
 		wire_list_add( &builder, item );
 	}
 
-	if( !found ) {
-		wire_retain( type->item, value );
-		wire_list_add( &builder, value );
-	}
+	if( !found ) wire_list_add( &builder, value );
 
 	return wire_list_end( &builder );
 }
@@ -317,7 +349,6 @@ wire_val wire_list_drop( const wire_type* type, wire_val list, wire_obj* owner, 
 
 	for( int64_t i = 0; i < own->len; ++i ) {
 		if( key_match( owner, member, own->items[ i ], key ) ) continue;
-		wire_retain( type->item, own->items[ i ] );
 		wire_list_add( &builder, own->items[ i ] );
 	}
 
@@ -339,6 +370,8 @@ wire_val wire_list_sort( const wire_type* type, wire_val list, wire_obj* owner, 
 	int64_t len = own->len;
 	wire_val* keys = grow( NULL, sizeof( wire_val ) * ( len + 1 ) );
 	int64_t* order = grow( NULL, sizeof( int64_t ) * ( len + 1 ) );
+	hold( NULL, ( wire_val ){ 0 }, keys );
+	hold( NULL, ( wire_val ){ 0 }, order );
 
 	for( int64_t i = 0; i < len; ++i ) {
 		keys[ i ] = key_of( owner, member, own->items[ i ] );
@@ -357,14 +390,7 @@ wire_val wire_list_sort( const wire_type* type, wire_val list, wire_obj* owner, 
 
 	wire_list_builder builder;
 	wire_list_begin( &builder, type );
-	for( int64_t i = 0; i < len; ++i ) {
-		wire_retain( type->item, own->items[ order[ i ] ] );
-		wire_list_add( &builder, own->items[ order[ i ] ] );
-	}
-
-	for( int64_t i = 0; i < len; ++i ) wire_release( member->type, keys[ i ] );
-	free( keys );
-	free( order );
+	for( int64_t i = 0; i < len; ++i ) wire_list_add( &builder, own->items[ order[ i ] ] );
 
 	return wire_list_end( &builder );
 }
@@ -413,6 +439,7 @@ typedef struct {
 	bool busy;
 	bool solid;
 	bool root;
+	bool waiting;
 	bool has_owner;
 	wire_id owner;
 	wire_ids kids;
@@ -426,6 +453,11 @@ typedef struct {
 	wire_val value;
 } wire_node;
 
+typedef struct wire_frame {
+	jmp_buf jump;
+	struct wire_frame* prev;
+} wire_frame;
+
 static const wire_id none = { UINT32_MAX, 0 };
 
 static struct {
@@ -436,6 +468,9 @@ static struct {
 	uint32_t free_len;
 	uint32_t free_cap;
 	wire_id current;
+	wire_frame* frame;
+	int effect_index;
+	int effect_done;
 	wire_ids touched;
 	wire_ids orphans;
 	wire_obj** garbage;
@@ -688,6 +723,7 @@ static void evict( wire_id id ) {
 
 	node = node_of( id );
 	node->state = STALE;
+	node->waiting = false;
 	if( node->has_value ) wire_release( node->member->type, node->value );
 	node->has_value = false;
 }
@@ -719,6 +755,11 @@ static bool owning( const wire_type* type, wire_val value, wire_id* kid ) {
 	return false;
 }
 
+void wire_wait( void ) {
+	if( !rt.frame ) fail( "wait outside of task" );
+	longjmp( rt.frame->jump, 1 );
+}
+
 static void calc( wire_id id, const wire_val* next ) {
 	wire_node* node = node_of( id );
 	wire_obj* obj = node->obj;
@@ -732,9 +773,26 @@ static void calc( wire_id id, const wire_val* next ) {
 	wire_id current = rt.current;
 	rt.current = put ? none : id;
 
+	int mark_scope = scope.len;
+	wire_frame frame;
+	frame.prev = rt.frame;
+	rt.frame = &frame;
+
+	if( setjmp( frame.jump ) ) {
+		rt.frame = frame.prev;
+		rt.current = current;
+		scope_end( mark_scope );
+		node = node_of( id );
+		node->busy = false;
+		node->state = FRESH;
+		node->waiting = true;
+		return;
+	}
+
 	wire_val out;
 	member->calc( obj, keys, next, &out );
 
+	rt.frame = frame.prev;
 	rt.current = current;
 
 	wire_id kid;
@@ -745,19 +803,25 @@ static void calc( wire_id id, const wire_val* next ) {
 	node = node_of( id );
 	node->busy = false;
 	node->state = FRESH;
+	node->waiting = false;
 
 	bool changed = !node->has_value || !wire_eq( member->type, node->value, out );
 
 	if( changed ) {
+		wire_retain( member->type, out );
 		if( node->has_value ) wire_release( member->type, node->value );
 		node->value = out;
 		node->has_value = true;
+	}
+
+	scope_end( mark_scope );
+
+	if( changed ) {
+		node = node_of( id );
 		wire_ids subs = { 0 };
 		for( int i = 0; i < node->subs.len; ++i ) ids_push( &subs, node->subs.items[ i ] );
 		for( int i = 0; i < subs.len; ++i ) mark( subs.items[ i ], STALE );
 		ids_free( &subs );
-	} else {
-		wire_release( member->type, out );
 	}
 
 	if( !put ) touch( id );
@@ -773,8 +837,11 @@ static void refresh( wire_id id ) {
 		for( int i = 0; i < node->pubs.len; ++i ) ids_push( &pubs, node->pubs.items[ i ] );
 		for( int i = 0; i < pubs.len; ++i ) {
 			refresh( pubs.items[ i ] );
+			wire_node* dep = get( pubs.items[ i ] );
 			wire_node* now = get( id );
-			if( !now || now->state != DOUBT ) break;
+			if( !now ) break;
+			if( dep && dep->waiting ) now->state = STALE;
+			if( now->state != DOUBT ) break;
 		}
 		ids_free( &pubs );
 		node = get( id );
@@ -872,8 +939,82 @@ wire_val wire_read( wire_obj* obj, const wire_member* member, const wire_val* ke
 	}
 
 	wire_node* node = node_of( id );
+	if( node->waiting ) wire_wait();
+
 	wire_retain( member->type, node->value );
-	return node->value;
+	return wire_keep( member->type, node->value );
+}
+
+static struct {
+	wire_val* lines;
+	int64_t len;
+	int64_t cap;
+	bool eof;
+	wire_ids waiters;
+	wire_obj* obj;
+} input;
+
+static void stdin_calc( wire_obj* self, const wire_val* keys, const wire_val* next, wire_val* out ) {
+	( void ) self;
+	( void ) next;
+	int64_t index = keys[ 0 ].i;
+
+	if( index >= 0 && index < input.len ) {
+		*out = wire_some_new( &maybe_text_type, input.lines[ index ] );
+		return;
+	}
+
+	if( index < 0 || input.eof ) {
+		*out = ( wire_val ){ .box = NULL };
+		return;
+	}
+
+	ids_push( &input.waiters, rt.current );
+	wire_wait();
+}
+
+static const wire_type* const stdin_keys[] = { &int_type };
+static const wire_member stdin_member = { "stdin", &maybe_text_type, false, 1, stdin_keys, stdin_calc, 0 };
+static const wire_class stdin_class = { "$bog_wire_stdin", 0, 1, 0 };
+
+static void stdin_ensure( void ) {
+	if( !input.obj ) input.obj = wire_obj_new( &stdin_class, true );
+}
+
+wire_val wire_stdin( int64_t index ) {
+	stdin_ensure();
+	wire_val key = { .i = index };
+	return wire_read( input.obj, &stdin_member, &key, NULL );
+}
+
+static void stdin_pull( void ) {
+	wire_buf buf = { 0 };
+	int got = 0;
+	int ch;
+
+	while( ( ch = fgetc( stdin ) ) != EOF ) {
+		got = 1;
+		if( ch == '\n' ) break;
+		char byte = ( char ) ch;
+		wire_buf_lit( &buf, &byte, 1 );
+	}
+
+	if( !got ) {
+		input.eof = true;
+		free( buf.data );
+	} else {
+		if( buf.len && buf.data[ buf.len - 1 ] == '\r' ) buf.len -= 1;
+		if( input.len == input.cap ) {
+			input.cap = input.cap * 2 + 16;
+			input.lines = grow( input.lines, sizeof( wire_val ) * input.cap );
+		}
+		input.lines[ input.len++ ] = text_raw( buf.data ? buf.data : "", buf.len );
+		free( buf.data );
+	}
+
+	wire_ids waiters = ids_take( &input.waiters );
+	for( int i = 0; i < waiters.len; ++i ) mark( waiters.items[ i ], STALE );
+	ids_free( &waiters );
 }
 
 void wire_sync( void ) {
@@ -888,9 +1029,17 @@ int64_t wire_alive( void ) {
 	return count;
 }
 
+bool wire_effect( void ) {
+	rt.effect_index += 1;
+	if( rt.effect_index <= rt.effect_done ) return false;
+	rt.effect_done = rt.effect_index;
+	return true;
+}
+
 void wire_assert( bool ok, const char* where ) {
 	if( ok ) return;
 	wire_failures += 1;
+	fflush( stdout );
 	fprintf( stderr, "assert failed at %s\n", where );
 }
 
@@ -904,39 +1053,94 @@ typedef struct {
 	wire_obj* obj;
 	wire_id node;
 	wire_action action;
+	int done;
 } wire_task;
 
-static struct {
+typedef struct {
 	wire_task* items;
 	int head;
 	int len;
 	int cap;
-} tasks;
+} wire_tasks;
 
-void wire_after( wire_obj* obj, wire_action action ) {
-	if( tasks.head + tasks.len == tasks.cap ) {
-		if( tasks.head ) {
-			memmove( tasks.items, tasks.items + tasks.head, sizeof( wire_task ) * tasks.len );
-			tasks.head = 0;
+static wire_tasks tasks;
+static wire_tasks suspended;
+
+static void tasks_push( wire_tasks* queue, wire_task task ) {
+	if( queue->head + queue->len == queue->cap ) {
+		if( queue->head ) {
+			memmove( queue->items, queue->items + queue->head, sizeof( wire_task ) * queue->len );
+			queue->head = 0;
 		} else {
-			tasks.cap = tasks.cap * 2 + 8;
-			tasks.items = grow( tasks.items, sizeof( wire_task ) * tasks.cap );
+			queue->cap = queue->cap * 2 + 8;
+			queue->items = grow( queue->items, sizeof( wire_task ) * queue->cap );
 		}
 	}
-	tasks.items[ tasks.head + tasks.len++ ] = ( wire_task ){ obj, obj->node, action };
+	queue->items[ queue->head + queue->len++ ] = task;
+}
+
+static wire_task tasks_pop( wire_tasks* queue ) {
+	wire_task task = queue->items[ queue->head++ ];
+	queue->len -= 1;
+	if( !queue->len ) queue->head = 0;
+	return task;
+}
+
+void wire_after( wire_obj* obj, wire_action action ) {
+	tasks_push( &tasks, ( wire_task ){ obj, obj->node, action, 0 } );
+}
+
+static bool attempt( wire_task* task ) {
+	if( !get( task->node ) ) fail( "task on destroyed object" );
+
+	rt.effect_index = 0;
+	rt.effect_done = task->done;
+
+	int mark_scope = scope.len;
+	wire_id current = rt.current;
+	rt.current = none;
+
+	wire_frame frame;
+	frame.prev = rt.frame;
+	rt.frame = &frame;
+
+	if( setjmp( frame.jump ) ) {
+		rt.frame = frame.prev;
+		rt.current = current;
+		scope_end( mark_scope );
+		task->done = rt.effect_done;
+		return false;
+	}
+
+	task->action( task->obj, NULL );
+
+	rt.frame = frame.prev;
+	rt.current = current;
+	scope_end( mark_scope );
+	return true;
 }
 
 static void run( wire_obj* root, wire_action action ) {
-	action( root, NULL );
-	wire_sync();
+	tasks_push( &tasks, ( wire_task ){ root, root->node, action, 0 } );
 
-	while( tasks.len ) {
-		wire_task task = tasks.items[ tasks.head++ ];
-		tasks.len -= 1;
-		if( !tasks.len ) tasks.head = 0;
-		if( !get( task.node ) ) fail( "after on destroyed object" );
-		task.action( task.obj, NULL );
-		wire_sync();
+	while( true ) {
+
+		if( tasks.len ) {
+			wire_task task = tasks_pop( &tasks );
+			if( !attempt( &task ) ) tasks_push( &suspended, task );
+			wire_sync();
+			continue;
+		}
+
+		if( suspended.len && input.waiters.len ) {
+			stdin_pull();
+			while( suspended.len ) tasks_push( &tasks, tasks_pop( &suspended ) );
+			continue;
+		}
+
+		if( suspended.len ) fail( "tasks wait forever" );
+
+		break;
 	}
 
 	wire_obj_destroy( root );
@@ -944,12 +1148,25 @@ static void run( wire_obj* root, wire_action action ) {
 }
 
 int wire_main( const wire_class* cls, wire_action action ) {
+	stdin_ensure();
 	run( wire_obj_new( cls, true ), action );
-	free( tasks.items );
+
+	int64_t leaked_values = wire_live - input.len - 1;
+	int64_t leaked_nodes = wire_alive() - 1;
+
+	if( leaked_values || leaked_nodes ) {
+		fflush( stdout );
+		fprintf( stderr, "leaked %lld values, %lld nodes\n", ( long long ) leaked_values, ( long long ) leaked_nodes );
+		return 1;
+	}
+
 	return wire_failures ? 1 : 0;
 }
 
 int wire_test( const char* name, const wire_class* cls, wire_action action ) {
+	stdin_ensure();
+	input.eof = true;
+
 	int failures = wire_failures;
 	int64_t live = wire_live;
 	int64_t nodes = wire_alive();
@@ -967,5 +1184,6 @@ int wire_test( const char* name, const wire_class* cls, wire_action action ) {
 	printf( "fail %s", name );
 	if( leaked_values || leaked_nodes ) printf( " leaked %lld values, %lld nodes", ( long long ) leaked_values, ( long long ) leaked_nodes );
 	printf( "\n" );
+	fflush( stdout );
 	return 1;
 }
