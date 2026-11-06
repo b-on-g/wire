@@ -182,6 +182,34 @@ namespace $ {
 			] )
 		},
 
+		'print, after and join'() {
+			$mol_assert_equal( errors(
+				... store,
+				'	twice( n: int ) = n * 2',
+				'	bad_after = after( reset )',
+				'	action ok() {',
+				'		print( "{items.size}" )',
+				'		after( reset )',
+				'	}',
+				'	action wrong() {',
+				'		print( 1 )',
+				'		after( twice )',
+				'		after( wrong_args )',
+				'		print( items.join( "," ) )',
+				'	}',
+				'	action wrong_args( n: int ) {',
+				'		reset()',
+				'	}',
+				'}',
+			), [
+				'after is allowed only in action @7',
+				'Expected text, got int @13',
+				'twice is not an action @14',
+				'Action wrong_args for after must take no params @15',
+				"Can't join list int @16",
+			] )
+		},
+
 		'duplicates'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',

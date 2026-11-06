@@ -462,6 +462,30 @@ namespace $ {
 				return ''
 			}
 
+			if( ref.kind === 'print' ) {
+				const value = this.expr( expr.args[0], ctx )
+				push( `wire_print( ${ value } );` )
+				this.release( ctx, value, { kind: 'text' } )
+				return ''
+			}
+
+			if( ref.kind === 'after' ) {
+				const arg = expr.args[0]
+				const owner = arg.kind === 'field' ? `${ this.expr( arg.target, ctx ) }.obj` : 'self'
+				push( `wire_after( ${ owner }, A_${ this.c( ref.owner ) }__${ ref.member } );` )
+				return ''
+			}
+
+			if( ref.kind === 'list' && ref.op === 'join' ) {
+				const callee = expr.callee as Extract< Expr, { kind: 'field' } >
+				const list = this.expr( callee.target, ctx )
+				const separator = this.expr( expr.args[0], ctx )
+				push( `wire_val ${ out } = wire_list_join( ${ list }, ${ separator } );` )
+				this.release( ctx, list, this.of( callee.target ) )
+				this.release( ctx, separator, { kind: 'text' } )
+				return out
+			}
+
 			if( ref.kind === 'list' ) {
 				const callee = expr.callee as Extract< Expr, { kind: 'field' } >
 				const list = this.expr( callee.target, ctx )
@@ -676,7 +700,7 @@ namespace $ {
 			return out
 		}
 
-		program() {
+		program( mode: 'test' | 'native' = 'test' ) {
 			const objects = [ ... this.check.decls.values() ].filter( decl => decl.kind === 'object' ) as Owner[]
 			const classes = [] as string[]
 
@@ -699,25 +723,27 @@ namespace $ {
 			}
 
 			const tests = [] as string[]
+			const mains = [] as string[]
+
 			for( const module of this.check.modules ) {
-				if( !/\.test\.wire$/.test( module.uri ) ) continue
+				const test = /\.test\.wire$/.test( module.uri )
+				const native = /\.native\.wire$/.test( module.uri )
 				for( const decl of module.decls ) {
 					if( decl.kind !== 'object' ) continue
 					for( const member of decl.members ) {
 						if( member.kind !== 'action' || member.params.length ) continue
 						const name = `${ this.c( decl.name ) }__${ member.name }`
-						tests.push( `\tfailed += wire_test( ${ cstr( `${ decl.name }.${ member.name }` ) }, &C_${ this.c( decl.name ) }, A_${ name } );` )
+						if( test ) tests.push( `\tfailed += wire_test( ${ cstr( `${ decl.name }.${ member.name }` ) }, &C_${ this.c( decl.name ) }, A_${ name } );` )
+						if( native && member.name === 'main' ) mains.push( `\treturn wire_main( &C_${ this.c( decl.name ) }, A_${ name } );` )
 					}
 				}
 			}
 
-			const main = tests.length ? [
-				'int main( void ) {',
-				'\tint failed = 0;',
-				... tests,
-				'\treturn failed ? 1 : 0;',
-				'}',
-			] : []
+			if( mode === 'native' && mains.length > 1 ) $mol_fail( new Error( 'wire: more than one action main in .native.wire' ) )
+
+			let main = [] as string[]
+			if( mode === 'test' && tests.length ) main = [ 'int main( void ) {', '\tint failed = 0;', ... tests, '\treturn failed ? 1 : 0;', '}' ]
+			if( mode === 'native' && mains.length ) main = [ 'int main( void ) {', mains[0], '}' ]
 
 			return [
 				'#include "rt.h"',

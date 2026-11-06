@@ -1,0 +1,31 @@
+object $bog_wire_shop_app {
+
+	solid shop = $bog_wire_shop()
+
+	action show() {
+		print( shop.receipt.join( "\n" ) )
+		print( "--" )
+	}
+
+	action main() {
+		shop.catalog.set( "tea", 120 )
+		shop.catalog.set( "cake", 300 )
+		shop.add( "tea" )
+		shop.add( "cake" )
+		show()
+		after( more )
+	}
+
+	action more() {
+		shop.add( "tea" )
+		shop.catalog.set( "cake", 280 )
+		show()
+		after( clear )
+	}
+
+	action clear() {
+		shop.remove( "tea" )
+		show()
+	}
+
+}

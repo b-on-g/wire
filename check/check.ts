@@ -11,7 +11,8 @@ namespace $ {
 		| { kind: 'member', owner: string, member: string }
 		| { kind: 'field', record: string, index: number }
 		| { kind: 'list', op: string }
-		| { kind: 'assert' }
+		| { kind: 'assert' | 'print' }
+		| { kind: 'after', owner: string, member: string }
 		| { kind: 'invoke', owner: string, member: string, mode: 'read' | 'write' | 'action' }
 
 	export type $bog_wire_check_scope = {
@@ -81,6 +82,8 @@ namespace $ {
 	}
 
 	const prims = new Set([ 'int', 'float', 'bool', 'text' ])
+
+	const builtins = new Set([ 'assert', 'print', 'after' ])
 
 	export class $bog_wire_check {
 
@@ -424,12 +427,25 @@ namespace $ {
 		call( expr: Extract< Expr, { kind: 'call' } >, scope: Scope ): Type {
 			const callee = expr.callee
 
-			if( callee.kind === 'name' && callee.name === 'assert' && !scope.params.has( 'assert' ) && !this.member( scope.owner, 'assert' ) ) {
-				if( !scope.action ) return this.fail( expr.span, 'assert is allowed only in action' )
-				if( expr.args.length !== 1 ) return this.fail( expr.span, 'assert takes one bool' )
+			const builtin = callee.kind === 'name' && builtins.has( callee.name ) && !scope.params.has( callee.name ) && !this.member( scope.owner, callee.name )
+
+			if( builtin && callee.name === 'after' ) {
+				if( !scope.action ) return this.fail( expr.span, 'after is allowed only in action' )
+				this.effects.add( expr )
+				if( expr.args.length !== 1 ) return this.fail( expr.span, 'after takes one action' )
+				const task = this.task( expr.args[0], scope )
+				if( !task ) return error
+				this.refs.set( expr, { kind: 'after', ... task } )
+				return vain
+			}
+
+			if( builtin ) {
+				const expected = callee.name === 'assert' ? bool : text
+				if( !scope.action ) return this.fail( expr.span, `${ callee.name } is allowed only in action` )
+				if( expr.args.length !== 1 ) return this.fail( expr.span, `${ callee.name } takes one ${ show( expected ) }` )
 				const type = this.expr( expr.args[0], scope )
-				if( !fits( type, bool ) ) this.fail( expr.args[0].span, `Expected bool, got ${ show( type ) }` )
-				this.refs.set( expr, { kind: 'assert' } )
+				if( !fits( type, expected ) ) this.fail( expr.args[0].span, `Expected ${ show( expected ) }, got ${ show( type ) }` )
+				this.refs.set( expr, { kind: callee.name as 'assert' | 'print' } )
 				this.effects.add( expr )
 				return vain
 			}
@@ -455,6 +471,40 @@ namespace $ {
 			}
 
 			return this.fail( expr.span, 'Not callable' )
+		}
+
+		task( arg: Expr, scope: Scope ) {
+			let owner: Owner | null = null
+			let name = ''
+
+			if( arg.kind === 'name' && !scope.params.has( arg.name ) ) {
+				owner = scope.owner
+				name = arg.name
+			} else if( arg.kind === 'field' && !arg.maybe ) {
+				const target = this.expr( arg.target, scope )
+				if( target.kind === 'error' ) return null
+				if( target.kind !== 'object' ) {
+					this.fail( arg.span, `Expected action, got ${ show( target ) }.${ arg.name }` )
+					return null
+				}
+				owner = this.decls.get( target.name ) as Owner
+				name = arg.name
+			} else {
+				this.fail( arg.span, 'Expected action' )
+				return null
+			}
+
+			const member = this.member( owner, name )
+			if( !member || member.kind !== 'action' ) {
+				this.fail( arg.span, `${ name } is not an action` )
+				return null
+			}
+			if( member.params.length ) {
+				this.fail( arg.span, `Action ${ name } for after must take no params` )
+				return null
+			}
+
+			return { owner: owner.name, member: name }
 		}
 
 		invoke( owner: Owner, member: Member, expr: Extract< Expr, { kind: 'call' } >, scope: Scope ): Type {
@@ -508,9 +558,17 @@ namespace $ {
 		}
 
 		list_call( target: { kind: 'list' | 'maybe', item: Type }, name: string, expr: Extract< Expr, { kind: 'call' } >, scope: Scope ): Type {
-			const arity: Record_< number > = { map: 1, sort: 1, find: 2, drop: 2, upsert: 3 }
+			const arity: Record_< number > = { map: 1, sort: 1, find: 2, drop: 2, upsert: 3, join: 1 }
 			if( !Object.hasOwn( arity, name ) ) return this.fail( expr.callee.span, `List has no ${ name }` )
 			if( expr.args.length !== arity[ name ] ) return this.fail( expr.span, `${ name } takes ${ arity[ name ] } args` )
+
+			if( name === 'join' ) {
+				if( !fits( target.item, text ) ) return this.fail( expr.callee.span, `Can't join ${ show( target ) }` )
+				const separator = this.expr( expr.args[0], scope )
+				if( !fits( separator, text ) ) return this.fail( expr.args[0].span, `Expected text, got ${ show( separator ) }` )
+				this.refs.set( expr, { kind: 'list', op: name } )
+				return text
+			}
 
 			const result = this.method( expr.args[0], target.item, scope, expr.span )
 			if( result.kind === 'error' ) return error

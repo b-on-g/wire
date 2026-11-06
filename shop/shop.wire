@@ -1,7 +1,7 @@
 object $bog_wire_shop {
 
-	catalog = $bog_wire_shop_catalog()
-	cart = $bog_wire_shop_cart()
+	solid catalog = $bog_wire_shop_catalog()
+	solid cart = $bog_wire_shop_cart()
 
 	line( sku: text ) = $bog_wire_shop_line {
 		sku <= sku

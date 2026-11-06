@@ -385,6 +385,16 @@ int64_t wire_list_size( wire_val list ) {
 	return ( ( wire_list* ) list.box )->len;
 }
 
+wire_val wire_list_join( wire_val list, wire_val separator ) {
+	wire_list* own = ( wire_list* ) list.box;
+	wire_buf buf = { 0 };
+	for( int64_t i = 0; i < own->len; ++i ) {
+		if( i ) wire_buf_text( &buf, separator );
+		wire_buf_text( &buf, own->items[ i ] );
+	}
+	return wire_buf_done( &buf );
+}
+
 typedef enum { FRESH, DOUBT, STALE } wire_state;
 
 typedef enum { NODE_ATOM, NODE_OBJ } wire_node_kind;
@@ -884,16 +894,67 @@ void wire_assert( bool ok, const char* where ) {
 	fprintf( stderr, "assert failed at %s\n", where );
 }
 
+void wire_print( wire_val text ) {
+	wire_text* own = ( wire_text* ) text.box;
+	fwrite( own->bytes, 1, own->len, stdout );
+	fputc( '\n', stdout );
+}
+
+typedef struct {
+	wire_obj* obj;
+	wire_id node;
+	wire_action action;
+} wire_task;
+
+static struct {
+	wire_task* items;
+	int head;
+	int len;
+	int cap;
+} tasks;
+
+void wire_after( wire_obj* obj, wire_action action ) {
+	if( tasks.head + tasks.len == tasks.cap ) {
+		if( tasks.head ) {
+			memmove( tasks.items, tasks.items + tasks.head, sizeof( wire_task ) * tasks.len );
+			tasks.head = 0;
+		} else {
+			tasks.cap = tasks.cap * 2 + 8;
+			tasks.items = grow( tasks.items, sizeof( wire_task ) * tasks.cap );
+		}
+	}
+	tasks.items[ tasks.head + tasks.len++ ] = ( wire_task ){ obj, obj->node, action };
+}
+
+static void run( wire_obj* root, wire_action action ) {
+	action( root, NULL );
+	wire_sync();
+
+	while( tasks.len ) {
+		wire_task task = tasks.items[ tasks.head++ ];
+		tasks.len -= 1;
+		if( !tasks.len ) tasks.head = 0;
+		if( !get( task.node ) ) fail( "after on destroyed object" );
+		task.action( task.obj, NULL );
+		wire_sync();
+	}
+
+	wire_obj_destroy( root );
+	wire_sync();
+}
+
+int wire_main( const wire_class* cls, wire_action action ) {
+	run( wire_obj_new( cls, true ), action );
+	free( tasks.items );
+	return wire_failures ? 1 : 0;
+}
+
 int wire_test( const char* name, const wire_class* cls, wire_action action ) {
 	int failures = wire_failures;
 	int64_t live = wire_live;
 	int64_t nodes = wire_alive();
 
-	wire_obj* obj = wire_obj_new( cls, true );
-	action( obj, NULL );
-	wire_sync();
-	wire_obj_destroy( obj );
-	wire_sync();
+	run( wire_obj_new( cls, true ), action );
 
 	int64_t leaked_values = wire_live - live;
 	int64_t leaked_nodes = wire_alive() - nodes;

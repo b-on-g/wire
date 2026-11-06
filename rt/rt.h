@@ -162,6 +162,7 @@ wire_val wire_list_drop( const wire_type* type, wire_val list, wire_obj* owner, 
 wire_val wire_list_sort( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member );
 wire_val wire_list_sum( wire_val list );
 int64_t wire_list_size( wire_val list );
+wire_val wire_list_join( wire_val list, wire_val separator );
 
 wire_obj* wire_obj_new( const wire_class* cls, bool root );
 void wire_obj_capture( wire_obj* obj, wire_obj* owner, int len, const wire_type* const* types, const wire_val* values );
@@ -173,4 +174,7 @@ void wire_sync( void );
 int64_t wire_alive( void );
 
 void wire_assert( bool ok, const char* where );
+void wire_print( wire_val text );
+void wire_after( wire_obj* obj, wire_action action );
 int wire_test( const char* name, const wire_class* cls, wire_action action );
+int wire_main( const wire_class* cls, wire_action action );

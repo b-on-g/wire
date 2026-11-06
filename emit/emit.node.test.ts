@@ -1,12 +1,12 @@
 namespace $ {
 
-	function build( sources: { uri: string, text: string }[] ) {
+	function build( sources: { uri: string, text: string }[], mode: 'test' | 'native' = 'test' ) {
 		const modules = sources.map( source => $bog_wire_parse( source.text, source.uri ) )
 		const check = new $bog_wire_check( modules )
 		if( check.errors.length ) $mol_fail( new Error( check.errors.map( error => error.message ).join( '\n' ) ) )
 
 		const dir = $node.fs.mkdtempSync( $node.path.join( $node.os.tmpdir(), 'bog_wire_' ) )
-		$node.fs.writeFileSync( $node.path.join( dir, 'test.c' ), new $bog_wire_emit( check ).program() )
+		$node.fs.writeFileSync( $node.path.join( dir, 'test.c' ), new $bog_wire_emit( check ).program( mode ) )
 		for( const file of [ 'rt.c', 'rt.h' ] ) $node.fs.copyFileSync( `bog/wire/rt/${ file }`, $node.path.join( dir, file ) )
 
 		const cc = $node.child_process.spawnSync( 'zig', [ 'cc', '-std=c11', '-O1', '-Werror', '-Wno-unused-variable', '-o', 'test', 'test.c', 'rt.c' ], { cwd: dir, encoding: 'utf8' } )
@@ -17,8 +17,8 @@ namespace $ {
 		return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 	}
 
-	function shop() {
-		const paths = [ 'catalog/catalog.wire', 'cart/cart.wire', 'line/line.wire', 'shop.wire', 'shop.test.wire' ]
+	function shop( entry = 'shop.test.wire' ) {
+		const paths = [ 'catalog/catalog.wire', 'cart/cart.wire', 'line/line.wire', 'shop.wire', entry ]
 		return paths.map( path => {
 			const uri = `bog/wire/shop/${ path }`
 			return { uri, text: $node.fs.readFileSync( uri, 'utf8' ) }
@@ -37,6 +37,42 @@ namespace $ {
 				].join( '\n' ),
 				stderr: '',
 			} )
+		},
+
+		'native main runs tasks with tick between'() {
+			$mol_assert_equal( build( shop( 'shop.native.wire' ), 'native' ), {
+				status: 0,
+				stdout: [
+					'tea x1 = 120', 'cake x1 = 300', 'total 420', '--',
+					'tea x2 = 240', 'cake x1 = 280', 'total 520', '--',
+					'cake x1 = 280', 'total 280', '--',
+					'',
+				].join( '\n' ),
+				stderr: '',
+			} )
+		},
+
+		'after on other object and print'() {
+			const result = build([{
+				uri: 'bog/wire/emit/case.native.wire',
+				text: [
+					'object $bog_wire_emit_case_log {',
+					'	solid lines( next?: list text ) = next ?? []',
+					'	action flush() {',
+					'		print( lines.join( "," ) )',
+					'	}',
+					'}',
+					'object $bog_wire_emit_case {',
+					'	solid log = $bog_wire_emit_case_log()',
+					'	action main() {',
+					'		log.lines( [ "a", "b" ] )',
+					'		after( log.flush )',
+					'		print( "first" )',
+					'	}',
+					'}',
+				].join( '\n' ),
+			}], 'native' )
+			$mol_assert_equal( result, { status: 0, stdout: 'first\na,b\n', stderr: '' } )
 		},
 
 		'failed assert fails the test'() {
