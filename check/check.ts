@@ -6,17 +6,28 @@ namespace $ {
 		| { kind: 'record' | 'object', name: string }
 		| { kind: 'method', owner: string, member: string }
 
+	export type $bog_wire_check_ref =
+		| { kind: 'param', name: string }
+		| { kind: 'member', owner: string, member: string }
+		| { kind: 'field', record: string, index: number }
+		| { kind: 'list', op: string }
+		| { kind: 'assert' }
+		| { kind: 'invoke', owner: string, member: string, mode: 'read' | 'write' | 'action' }
+
+	export type $bog_wire_check_scope = {
+		owner: Extract< $bog_wire_ast_decl, { kind: 'object' } >
+		params: Map< string, $bog_wire_check_type >
+		action: boolean
+	}
+
 	type Type = $bog_wire_check_type
+	type Ref = $bog_wire_check_ref
 	type Expr = $bog_wire_ast_expr
 	type Member = $bog_wire_ast_member
 	type Owner = Extract< $bog_wire_ast_decl, { kind: 'object' } >
 	type Shape = Extract< $bog_wire_ast_decl, { kind: 'record' } >
 
-	type Scope = {
-		owner: Owner
-		params: Map< string, Type >
-		action: boolean
-	}
+	type Scope = $bog_wire_check_scope
 
 	const int = { kind: 'int' } as const
 	const float = { kind: 'float' } as const
@@ -84,6 +95,12 @@ namespace $ {
 		body_types = new Map< Member, Type >()
 
 		inferring = new Set< Member >()
+
+		types = new Map< Expr, Type >()
+
+		refs = new Map< Expr, Ref >()
+
+		scopes = new Map< Member, Scope >()
 
 		constructor( readonly modules: $bog_wire_ast_module[] ) {
 
@@ -170,7 +187,9 @@ namespace $ {
 				params.set( param.name, param.next ? maybe( type ) : type )
 			}
 
-			return { owner, params, action: member.kind === 'action' }
+			const scope = { owner, params, action: member.kind === 'action' }
+			this.scopes.set( member, scope )
+			return scope
 		}
 
 		member( owner: Owner, name: string ) {
@@ -222,6 +241,12 @@ namespace $ {
 		}
 
 		expr( expr: Expr, scope: Scope ): Type {
+			const type = this.infer( expr, scope )
+			this.types.set( expr, type )
+			return type
+		}
+
+		infer( expr: Expr, scope: Scope ): Type {
 			switch( expr.kind ) {
 
 				case 'number': return expr.float ? float : int
@@ -240,9 +265,13 @@ namespace $ {
 				case 'name': {
 					if( expr.name.startsWith( '$' ) ) return this.fail( expr.span, `Expected ${ expr.name }() or ${ expr.name }{ … }` )
 					const param = scope.params.get( expr.name )
-					if( param ) return param
+					if( param ) {
+						this.refs.set( expr, { kind: 'param', name: expr.name } )
+						return param
+					}
 					const member = this.member( scope.owner, expr.name )
 					if( !member ) return this.fail( expr.span, `Unknown ${ expr.name }` )
+					this.refs.set( expr, { kind: 'member', owner: scope.owner.name, member: member.name } )
 					return this.read( scope.owner, member, expr.span )
 				}
 
@@ -358,17 +387,20 @@ namespace $ {
 				const owner = this.decls.get( target.name ) as Owner
 				const member = this.member( owner, expr.name )
 				if( !member ) return this.fail( expr.span, `${ target.name } has no ${ expr.name }` )
+				this.refs.set( expr, { kind: 'member', owner: owner.name, member: member.name } )
 				return this.read( owner, member, expr.span )
 			}
 
 			if( target.kind === 'record' ) {
 				const record = this.decls.get( target.name ) as Shape
-				const field = record.fields.find( field => field.name === expr.name )
-				if( !field ) return this.fail( expr.span, `${ target.name } has no ${ expr.name }` )
-				return this.type( field.type )
+				const index = record.fields.findIndex( field => field.name === expr.name )
+				if( index < 0 ) return this.fail( expr.span, `${ target.name } has no ${ expr.name }` )
+				this.refs.set( expr, { kind: 'field', record: record.name, index } )
+				return this.type( record.fields[ index ].type )
 			}
 
 			if( target.kind === 'list' ) {
+				if( expr.name === 'sum' || expr.name === 'size' ) this.refs.set( expr, { kind: 'list', op: expr.name } )
 				if( expr.name === 'sum' ) {
 					if( target.item.kind === 'never' ) return int
 					if( target.item.kind !== 'int' && target.item.kind !== 'float' ) return this.fail( expr.span, `Can't sum ${ show( target ) }` )
@@ -397,6 +429,7 @@ namespace $ {
 				if( expr.args.length !== 1 ) return this.fail( expr.span, 'assert takes one bool' )
 				const type = this.expr( expr.args[0], scope )
 				if( !fits( type, bool ) ) this.fail( expr.args[0].span, `Expected bool, got ${ show( type ) }` )
+				this.refs.set( expr, { kind: 'assert' } )
 				this.effects.add( expr )
 				return vain
 			}
@@ -431,6 +464,7 @@ namespace $ {
 				if( !scope.action ) return this.fail( expr.span, `Action ${ member.name } can't be called from memo` )
 				if( expr.args.length !== member.params.length ) return this.fail( expr.span, `${ member.name } takes ${ member.params.length } args` )
 				this.args( member.params, expr.args, scope )
+				this.refs.set( expr, { kind: 'invoke', owner: owner.name, member: member.name, mode: 'action' } )
 				this.effects.add( expr )
 				return vain
 			}
@@ -440,12 +474,14 @@ namespace $ {
 
 			if( expr.args.length === keys.length ) {
 				this.args( keys, expr.args, scope )
+				this.refs.set( expr, { kind: 'invoke', owner: owner.name, member: member.name, mode: 'read' } )
 				return this.value_type( owner, member )
 			}
 
 			if( next && expr.args.length === keys.length + 1 ) {
 				if( !scope.action ) return this.fail( expr.span, `Write to ${ member.name } is allowed only in action` )
 				this.args( member.params, expr.args, scope )
+				this.refs.set( expr, { kind: 'invoke', owner: owner.name, member: member.name, mode: 'write' } )
 				this.effects.add( expr )
 				return this.value_type( owner, member )
 			}
@@ -478,6 +514,7 @@ namespace $ {
 
 			const result = this.method( expr.args[0], target.item, scope, expr.span )
 			if( result.kind === 'error' ) return error
+			this.refs.set( expr, { kind: 'list', op: name } )
 
 			const key = ( index: number )=> {
 				const type = this.expr( expr.args[ index ], scope )
@@ -535,7 +572,7 @@ namespace $ {
 						this.fail( entry.span, `${ decl.name } has no ${ entry.name }` )
 						continue
 					}
-					const value = entry.value ?? { kind: 'name' as const, name: entry.name, span: entry.span }
+					const value = entry.value ??= { kind: 'name' as const, name: entry.name, span: entry.span }
 					const type = this.expr( value, scope )
 					const expected = this.type( field.type )
 					if( !fits( type, expected ) ) this.fail( entry.span, `Expected ${ show( expected ) }, got ${ show( type ) }` )
