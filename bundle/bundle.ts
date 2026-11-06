@@ -22,7 +22,7 @@ namespace $ {
 				$mol_fail( new $mol_error_mix( `wire: ${ check.errors.length } errors`, {}, ... check.errors ) )
 			}
 
-			const code = new $bog_wire_emit( check ).program( mode )
+			const code = new $bog_wire_emit( check ).program( mode, slice.pack().dir().relate( root ) )
 			return /\nint main\(/.test( code ) ? code : null
 		}
 

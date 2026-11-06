@@ -12,6 +12,21 @@ bog/wire/shop/-/native
 
 Сборка пака с `.wire` разбирает и проверяет все его исходники, генерирует C в `-/wire/test/main.c`, собирает его `zig cc` вместе с рантаймом и запускает тесты. Красный тест, ошибка проверки или утечка роняют сборку. Если в `.native.wire` есть `action main()`, рядом собирается бинарь `-/native`. Плагин подключает `wire.build.ts`, паки внутри `bog/wire` получают его сами.
 
+## Без сборщика MAM
+
+Компилятор есть и отдельной командой. Её один раз собирают в бандл, дальше она работает сама: находит модули по `$имя` от текущей папки, проверяет, генерирует C и зовёт `zig cc`.
+
+```sh
+node bog/build2/start/-/node.js bog/wire/cli
+node bog/wire/cli/-/node.js build bog/wire/demonative/hello
+bog/wire/demonative/hello/-/native
+node bog/wire/cli/-/node.js test bog/wire/demonative
+node bog/wire/cli/-/node.js c bog/wire/demonative/hello > main.c
+zig cc -std=c11 -O2 -Ibog/wire/rt -o hello main.c bog/wire/rt/rt.c
+```
+
+`build` собирает `-/native` из `action main()` в `.native.wire` самого модуля, `test` собирает и запускает тесты, `c` печатает C.
+
 ## Язык
 
 ```wire

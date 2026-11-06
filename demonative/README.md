@@ -11,3 +11,4 @@ printf 'PRICE = 120\nQTY = 3\nTOTAL = PRICE * QTY\nQTY = 4\n' | bog/wire/demonat
 - `sheet` — стор ячеек (`solid`), формула на каждую ячейку, значения по имени. Цикл ищется по ссылкам из текста формул объектом `search( target, depth )`: замыканий в языке нет, поэтому параметры обхода живут в объекте, а его метод `hop` уходит в `map`.
 - `command` — разбор строки `NAME = формула`.
 - корень — выполнение команды, `demonative.native.wire` — цикл чтения `stdin( n )`.
+- `hello` — `Hello, World!` в консоль: `node bog/wire/cli/-/node.js build bog/wire/demonative/hello`.

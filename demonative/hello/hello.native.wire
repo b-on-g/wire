@@ -1,0 +1,7 @@
+object $bog_wire_demonative_hello {
+
+	action main() {
+		print( "Hello, World!" )
+	}
+
+}

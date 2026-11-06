@@ -685,7 +685,7 @@ namespace $ {
 			return out
 		}
 
-		program( mode: 'test' | 'native' = 'test' ) {
+		program( mode: 'test' | 'native' = 'test', pack = '' ) {
 			const objects = [ ... this.check.decls.values() ].filter( decl => decl.kind === 'object' ) as Owner[]
 			const classes = [] as string[]
 
@@ -712,7 +712,7 @@ namespace $ {
 
 			for( const module of this.check.modules ) {
 				const test = /\.test\.wire$/.test( module.uri )
-				const native = /\.native\.wire$/.test( module.uri )
+				const native = /\.native\.wire$/.test( module.uri ) && ( !pack || module.uri.replace( /\/[^/]*$/, '' ) === pack )
 				for( const decl of module.decls ) {
 					if( decl.kind !== 'object' ) continue
 					for( const member of decl.members ) {
