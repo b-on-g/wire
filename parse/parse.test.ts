@@ -60,6 +60,9 @@ namespace $ {
 				'	solid items( next?: list $bog_wire_parse_item ) = next ?? []',
 				'	qty( sku: text ): int = 0',
 				'	total = 1',
+				'	solid ids( next?: list text ) {',
+				'		return next ?? []',
+				'	}',
 				'	action add( sku: text, n: int ) {',
 				'		items( [] )',
 				'		cart.set( sku, n )',
@@ -72,6 +75,7 @@ namespace $ {
 				'	(memo solid items (next?: list $bog_wire_parse_item) (?? next []))',
 				'	(memo qty (sku: text) : int 0)',
 				'	(memo total 1)',
+				'	(memo solid ids (next?: list text) (?? next []))',
 				'	(action add (sku: text, n: int) (call items []) (call (. cart set) sku n)))',
 			].join( '\n' ) )
 		},

@@ -1,6 +1,6 @@
 namespace $ {
 
-	const keywords = new Set([ 'type', 'object', 'action', 'solid', 'true', 'false', 'none' ])
+	const keywords = new Set([ 'type', 'object', 'action', 'solid', 'return', 'true', 'false', 'none' ])
 
 	const prims = new Set([ 'int', 'float', 'bool', 'text' ])
 
@@ -152,6 +152,14 @@ namespace $ {
 			if( this.is( '=' ) ) {
 				this.next()
 				return { kind: 'memo', name: name.text, solid, params, type, body: this.expr(), span: name.span }
+			}
+
+			if( this.is( '{' ) ) {
+				this.next()
+				this.expect( 'return' )
+				const body = this.expr()
+				this.expect( '}' )
+				return { kind: 'memo', name: name.text, solid, params, type, body, span: name.span }
 			}
 
 			if( solid || braced || !type ) this.fail( this.peek(), 'Expected =' )
