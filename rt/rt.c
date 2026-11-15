@@ -63,7 +63,9 @@ void wire_release( const wire_type* type, wire_val value ) {
 
 		case WIRE_LIST: {
 			wire_list* list = ( wire_list* ) value.box;
-			for( int64_t i = 0; i < list->len; ++i ) wire_release( own->item, list->items[ i ] );
+			if( boxed( own->item ) ) {
+				for( int64_t i = 0; i < list->len; ++i ) wire_release( own->item, list->items[ i ] );
+			}
 			break;
 		}
 
@@ -417,7 +419,17 @@ void wire_list_add( wire_list_builder* builder, wire_val item ) {
 
 void wire_list_add_all( wire_list_builder* builder, wire_val list ) {
 	wire_list* own = ( wire_list* ) list.box;
-	for( int64_t i = 0; i < own->len; ++i ) wire_list_add( builder, own->items[ i ] );
+	wire_list* out = ( wire_list* ) scope.items[ builder->slot ].value.box;
+	if( out->len + own->len > builder->cap ) {
+		while( out->len + own->len > builder->cap ) builder->cap = builder->cap * 2;
+		out = grow( out, sizeof( wire_list ) + sizeof( wire_val ) * builder->cap );
+		scope.items[ builder->slot ].value.box = &out->head;
+	}
+	memcpy( out->items + out->len, own->items, sizeof( wire_val ) * own->len );
+	if( boxed( builder->type->item ) ) {
+		for( int64_t i = 0; i < own->len; ++i ) wire_retain( builder->type->item, own->items[ i ] );
+	}
+	out->len += own->len;
 }
 
 wire_val wire_list_end( wire_list_builder* builder ) {
@@ -425,7 +437,10 @@ wire_val wire_list_end( wire_list_builder* builder ) {
 }
 
 static wire_val key_of( wire_obj* owner, const wire_member* member, wire_val item ) {
-	return wire_read( owner, member, &item, NULL );
+	if( !member->pure ) return wire_read( owner, member, &item, NULL );
+	wire_val out;
+	member->calc( owner, &item, NULL, &out );
+	return out;
 }
 
 wire_val wire_list_map( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member ) {
@@ -437,7 +452,13 @@ wire_val wire_list_map( const wire_type* type, wire_val list, wire_obj* owner, c
 }
 
 static bool key_match( wire_obj* owner, const wire_member* member, wire_val item, wire_val key ) {
-	return wire_eq( member->type, key_of( owner, member, item ), key );
+	wire_val own = key_of( owner, member, item );
+	switch( member->type->kind ) {
+		case WIRE_INT: return own.i == key.i;
+		case WIRE_BOOL: return own.b == key.b;
+		case WIRE_OBJECT: return own.obj == key.obj;
+		default: return wire_eq( member->type, own, key );
+	}
 }
 
 wire_val wire_list_find( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member, wire_val key ) {
