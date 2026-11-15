@@ -10,9 +10,9 @@ runs=5
 mkdir -p $out
 
 ( cd $root && node bog/wire/cli/-/node.js build bog/wire/bench > /dev/null )
-cargo build --release --quiet --manifest-path $here/rust/Cargo.toml --target-dir $out/rust
+cargo build --release --quiet --manifest-path $here/rust-wire/Cargo.toml --target-dir $out/rust-wire
 ( cd $here/go && go build -o $out/go . )
-rustc -C opt-level=3 -o $out/plain $here/plain/main.rs
+rustc -C opt-level=3 -o $out/rust $here/rust/main.rs
 ( cd $here/node && npm install --silent > /dev/null )
 
 for n in $sizes; do
@@ -41,10 +41,10 @@ measure() {
 
 {
 	measure wire $here/-/native
-	measure rust $out/rust/release/bog_wire_bench
+	measure rust-wire $out/rust-wire/release/bog_wire_bench
 	measure node node $here/node/bench.cjs
 	measure go $out/go
-	measure plain $out/plain
+	measure rust $out/rust
 } > $out/raw.txt
 
 median() {
@@ -52,9 +52,9 @@ median() {
 }
 
 for n in $sizes; do
-	for name in wire rust node go plain; do
+	for name in wire rust-wire node go rust; do
 		ins=$( awk -v n=$n -v name=$name '$1 == n && $2 == name { print $3 }' $out/raw.txt | median )
 		mem=$( awk -v n=$n -v name=$name '$1 == n && $2 == name { print $4 }' $out/raw.txt | median )
-		awk -v n=$n -v name=$name -v ins=$ins -v mem=$mem 'BEGIN { printf "%6s  %-5s  %8.3f млрд инструкций  %6.1f МБ\n", n, name, ins / 1e9, mem / 1e6 }'
+		awk -v n=$n -v name=$name -v ins=$ins -v mem=$mem 'BEGIN { printf "%6s  %-9s  %8.3f млрд инструкций  %6.1f МБ\n", n, name, ins / 1e9, mem / 1e6 }'
 	done
 done
