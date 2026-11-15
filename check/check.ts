@@ -716,8 +716,16 @@ namespace $ {
 			for( const member of decl.members ) {
 				if( member.kind !== 'abstract' || seen.has( member.name ) ) continue
 
-				if( !scope.params.has( member.name ) && !this.member( scope.owner, member.name ) ) {
+				const param = scope.params.has( member.name )
+				const own = Boolean( this.member( scope.owner, member.name ) )
+
+				if( !param && !own ) {
 					this.fail( expr.span, `Property ${ member.name } is not bound` )
+					continue
+				}
+
+				if( param && own ) {
+					this.fail( expr.span, `Both param and method ${ member.name } fit, bind it with <=` )
 					continue
 				}
 

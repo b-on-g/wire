@@ -35,12 +35,12 @@ namespace $ {
 			].join( '\n' ) )
 		},
 
-		'shop binds line properties'() {
+		'shop line takes properties by name'() {
 			const line = shop( 'shop.wire' ).decls[0]
 			if( line.kind !== 'object' ) $mol_fail( new Error( 'object expected' ) )
 			$mol_assert_equal(
 				$bog_wire_ast_dump({ uri: '', decls: [{ ... line, members: line.members.filter( member => member.name === 'line' ) }] }),
-				'(object $bog_wire_shop\n\t(memo line (sku: text) ($bog_wire_shop_line sku<=sku cart<=cart catalog<=catalog)))',
+				'(object $bog_wire_shop\n\t(memo line (sku: text) ($bog_wire_shop_line)))',
 			)
 		},
 

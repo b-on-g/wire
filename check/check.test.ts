@@ -76,14 +76,29 @@ namespace $ {
 				'object $bog_wire_check_x {',
 				'	sku = "tea"',
 				'	own = $bog_wire_check_item()',
-				'	keyed( sku: text ) = $bog_wire_check_item()',
 				'}',
 				'object $bog_wire_check_y {',
+				'	keyed( sku: text ) = $bog_wire_check_item()',
+				'}',
+				'object $bog_wire_check_z {',
 				'	sku = 1',
 				'	wrong = $bog_wire_check_item()',
 				'}',
 			), [
-				'Expected text for sku, got int @12',
+				'Expected text for sku, got int @14',
+			] )
+		},
+
+		'same name in param and method needs explicit bind'() {
+			$mol_assert_equal( errors(
+				... item,
+				'object $bog_wire_check_x {',
+				'	sku = "tea"',
+				'	both( sku: text ) = $bog_wire_check_item()',
+				'	explicit( sku: text ) = $bog_wire_check_item{ sku <= sku }',
+				'}',
+			), [
+				'Both param and method sku fit, bind it with <= @7',
 			] )
 		},
 
