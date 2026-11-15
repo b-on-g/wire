@@ -195,7 +195,7 @@ namespace $ {
 				'	c = items.map( 1 )',
 				'	d = items.find( twice, "x" )',
 				'	e = items.upsert( twice, 2, "x" )',
-				'	f = items.fold( twice )',
+				'	f = items.reduce( twice )',
 				'}',
 			), [
 				'label takes text, list has int @9',
@@ -203,7 +203,7 @@ namespace $ {
 				'Expected method, got int @11',
 				'Expected int, got text @12',
 				'Expected int, got text @13',
-				'List has no fold @14',
+				'List has no reduce @14',
 			] )
 		},
 
@@ -307,6 +307,34 @@ namespace $ {
 				'Expected text, got int @5',
 				'Expected text, got int @7',
 				'Expected list text, got text @8',
+			] )
+		},
+
+		'fold takes pure method with accumulator and item'() {
+			$mol_assert_equal( errors(
+				'object $bog_wire_check_x {',
+				'	items: list int',
+				'	solid state( next?: int ) = next ?? 0',
+				'	add( acc: int, item: int ) = acc + item',
+				'	reads( acc: int, item: int ) = acc + state',
+				'	short( item: int ) = item',
+				'	wide( acc: text, item: int ) = acc',
+				'	wrong( acc: int, item: int ) = "{ acc }"',
+				'	ok = items.fold( add, 0 )',
+				'	bad_reads = items.fold( reads, 0 )',
+				'	bad_short = items.fold( short, 0 )',
+				'	bad_item = [ "a" ].fold( add, 0 )',
+				'	bad_init = items.fold( add, "" )',
+				'	bad_wide = items.fold( wide, 0 )',
+				'	bad_result = items.fold( wrong, 0 )',
+				'}',
+			), [
+				'reads must read only its params @10',
+				'short must take accumulator and item @11',
+				'add takes int, list has text @12',
+				'Expected int, got text @13',
+				'Expected text, got int @14',
+				'wrong returns text, accumulator is int @15',
 			] )
 		},
 

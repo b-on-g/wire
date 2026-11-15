@@ -659,8 +659,35 @@ namespace $ {
 			return this.value_type( owner, member )
 		}
 
+		fold( target: { kind: 'list' | 'maybe', item: Type }, expr: Extract< Expr, { kind: 'call' } >, scope: Scope ): Type {
+			const arg = expr.args[0]
+			const ref = this.expr( arg, scope )
+			const init = this.expr( expr.args[1], scope )
+			if( ref.kind === 'error' ) return error
+			if( ref.kind !== 'method' ) return this.fail( arg.span, `Expected method, got ${ show( ref ) }` )
+
+			const owner = this.decls.get( ref.owner ) as Owner
+			const member = this.member( owner, ref.member )!
+			const keys = this.keys( member )
+			if( keys.length !== 2 ) return this.fail( arg.span, `${ ref.member } must take accumulator and item` )
+
+			this.body_type( owner, member as Extract< Member, { kind: 'memo' } > )
+			if( !this.pure( member ) ) return this.fail( arg.span, `${ ref.member } must read only its params` )
+
+			const acc = this.type( keys[0].type )
+			const item = this.type( keys[1].type )
+			if( !fits( target.item, item ) ) return this.fail( arg.span, `${ ref.member } takes ${ show( item ) }, list has ${ show( target.item ) }` )
+			if( !fits( init, acc ) ) return this.fail( expr.args[1].span, `Expected ${ show( acc ) }, got ${ show( init ) }` )
+
+			const result = this.value_type( owner, member )
+			if( !same( result, acc ) ) return this.fail( arg.span, `${ ref.member } returns ${ show( result ) }, accumulator is ${ show( acc ) }` )
+
+			this.refs.set( expr, { kind: 'list', op: 'fold' } )
+			return acc
+		}
+
 		list_call( target: { kind: 'list' | 'maybe', item: Type }, name: string, expr: Extract< Expr, { kind: 'call' } >, scope: Scope ): Type {
-			const arity: Record_< number > = { map: 1, sort: 1, find: 2, drop: 2, upsert: 3, join: 1 }
+			const arity: Record_< number > = { map: 1, sort: 1, find: 2, drop: 2, upsert: 3, join: 1, fold: 2 }
 			if( !Object.hasOwn( arity, name ) ) return this.fail( expr.callee.span, `List has no ${ name }` )
 			if( expr.args.length !== arity[ name ] ) return this.fail( expr.span, `${ name } takes ${ arity[ name ] } args` )
 
@@ -671,6 +698,8 @@ namespace $ {
 				this.refs.set( expr, { kind: 'list', op: name } )
 				return text
 			}
+
+			if( name === 'fold' ) return this.fold( target, expr, scope )
 
 			const result = this.method( expr.args[0], target.item, scope, expr.span )
 			if( result.kind === 'error' ) return error

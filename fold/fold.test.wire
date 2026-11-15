@@ -1,0 +1,34 @@
+type $bog_wire_fold_item { name: text, qty: int }
+
+object $bog_wire_fold_test {
+
+	add( acc: int, item: int ) = acc + item
+
+	cost( acc: int, item: $bog_wire_fold_item ) = acc + item.qty * 2
+
+	join( acc: text, item: text ) = acc == "" ? item : "{acc},{item}"
+
+	push( acc: list int, item: int ) = [ ... acc, item * item ]
+
+	longest( acc: text?, item: text ) = acc == none || item.size > ( acc ?? "" ).size ? item : acc
+
+	action sums_in_order() {
+		assert( [ 1, 2, 3, 4 ].fold( add, 10 ) == 20 )
+		assert( [].fold( add, 7 ) == 7 )
+	}
+
+	action folds_records() {
+		assert( [ $bog_wire_fold_item{ name: "a", qty: 1 }, $bog_wire_fold_item{ name: "b", qty: 4 } ].fold( cost, 0 ) == 10 )
+	}
+
+	action folds_texts_and_lists() {
+		assert( [ "a", "b", "c" ].fold( join, "" ) == "a,b,c" )
+		assert( [ 1, 2, 3 ].fold( push, [] ) == [ 1, 4, 9 ] )
+	}
+
+	action folds_into_maybe() {
+		assert( [ "aa", "bbbb", "c" ].fold( longest, none ) == "bbbb" )
+		assert( [].fold( longest, none ) == none )
+	}
+
+}

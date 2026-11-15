@@ -561,6 +561,7 @@ namespace $ {
 
 			switch( op ) {
 				case 'map': push( `wire_val ${ out } = wire_list_map( ${ head } );` ); break
+				case 'fold': push( `wire_val ${ out } = wire_list_fold( ${ head }, ${ value_of( 1, fn.value ) } );` ); break
 				case 'sort': push( `wire_val ${ out } = wire_list_sort( ${ head } );` ); break
 				case 'find': push( `wire_val ${ out } = wire_list_find( ${ head }, ${ value_of( 1, fn.value ) } );` ); break
 				case 'drop': push( `wire_val ${ out } = wire_list_drop( ${ head }, ${ value_of( 1, fn.value ) } );` ); break

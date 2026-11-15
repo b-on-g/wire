@@ -181,6 +181,7 @@ wire_val wire_list_map( const wire_type* type, wire_val list, wire_obj* owner, c
 wire_val wire_list_find( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member, wire_val key );
 wire_val wire_list_upsert( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member, wire_val key, wire_val value );
 wire_val wire_list_drop( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member, wire_val key );
+wire_val wire_list_fold( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member, wire_val init );
 wire_val wire_list_sort( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member );
 wire_val wire_list_sum( wire_val list );
 int64_t wire_list_size( wire_val list );

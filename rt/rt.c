@@ -570,6 +570,26 @@ wire_val wire_list_sort( const wire_type* type, wire_val list, wire_obj* owner, 
 	return wire_list_end( &builder );
 }
 
+wire_val wire_list_fold( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member, wire_val init ) {
+	wire_list* own = ( wire_list* ) list.box;
+	wire_val acc = init;
+	wire_retain( type, acc );
+	int mark = scope.len;
+
+	for( int64_t i = 0; i < own->len; ++i ) {
+		wire_val keys[ 2 ] = { acc, own->items[ i ] };
+		wire_val next;
+		if( member->pure ) member->calc( owner, keys, NULL, &next );
+		else next = wire_read( owner, member, keys, NULL );
+		wire_retain( type, next );
+		scope_end( mark );
+		wire_release( type, acc );
+		acc = next;
+	}
+
+	return wire_keep( type, acc );
+}
+
 wire_val wire_list_sum( wire_val list ) {
 	wire_list* own = ( wire_list* ) list.box;
 	if( own->head.type->item->kind == WIRE_FLOAT ) {
