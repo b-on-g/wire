@@ -70,6 +70,23 @@ namespace $ {
 			] )
 		},
 
+		'abstract property takes same name from owner'() {
+			$mol_assert_equal( errors(
+				... item,
+				'object $bog_wire_check_x {',
+				'	sku = "tea"',
+				'	own = $bog_wire_check_item()',
+				'	keyed( sku: text ) = $bog_wire_check_item()',
+				'}',
+				'object $bog_wire_check_y {',
+				'	sku = 1',
+				'	wrong = $bog_wire_check_item()',
+				'}',
+			), [
+				'Expected text for sku, got int @12',
+			] )
+		},
+
 		'unknown names'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',

@@ -3,11 +3,7 @@ object $bog_wire_shop {
 	solid catalog = $bog_wire_shop_catalog()
 	solid cart = $bog_wire_shop_cart()
 
-	line( sku: text ) = $bog_wire_shop_line {
-		sku <= sku
-		cart <= cart
-		catalog <= catalog
-	}
+	line( sku: text ) = $bog_wire_shop_line()
 
 	line_sum( line: $bog_wire_shop_line ) = line.sum
 	line_label( line: $bog_wire_shop_line ) = line.label

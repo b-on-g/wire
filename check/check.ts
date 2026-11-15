@@ -714,7 +714,19 @@ namespace $ {
 			}
 
 			for( const member of decl.members ) {
-				if( member.kind === 'abstract' && !seen.has( member.name ) ) this.fail( expr.span, `Property ${ member.name } is not bound` )
+				if( member.kind !== 'abstract' || seen.has( member.name ) ) continue
+
+				if( !scope.params.has( member.name ) && !this.member( scope.owner, member.name ) ) {
+					this.fail( expr.span, `Property ${ member.name } is not bound` )
+					continue
+				}
+
+				const value = { kind: 'name' as const, name: member.name, span: expr.span }
+				expr.entries.push({ kind: 'bind', name: member.name, value, span: expr.span })
+
+				const type = this.expr( value, scope )
+				const expected = this.type( member.type )
+				if( !fits( type, expected ) ) this.fail( expr.span, `Expected ${ show( expected ) } for ${ member.name }, got ${ show( type ) }` )
 			}
 
 			return { kind: 'object', name: decl.name }
