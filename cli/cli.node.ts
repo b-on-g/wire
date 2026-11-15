@@ -43,10 +43,13 @@ namespace $ {
 	}
 
 	export function $bog_wire_cli( args: string[], root = $node.process.cwd() ) {
+		const flag = args.indexOf( '--target' )
+		const triple = flag >= 0 ? args[ flag + 1 ] : undefined
+		if( flag >= 0 ) args = args.filter( ( _, index ) => index !== flag && index !== flag + 1 )
 		const [ command, target ] = args
 
 		if( !target || ![ 'build', 'test', 'c' ].includes( command ) ) {
-			console.error( 'usage: wire build|test|c <module>' )
+			console.error( 'usage: wire build|test|c <module> [--target <zig-target>]' )
 			return 2
 		}
 
@@ -77,10 +80,10 @@ namespace $ {
 		for( const file of [ 'rt.c', 'rt.h' ] ) $node.fs.copyFileSync( $node.path.join( root, 'bog/wire/rt', file ), $node.path.join( out, file ) )
 
 		const binary = mode === 'test' ? $node.path.join( out, 'test' ) : $node.path.join( root, pack, '-', 'native' )
-		const cc = $node.child_process.spawnSync( 'zig', [ 'cc', '-std=c11', '-O2', '-o', binary, 'main.c', 'rt.c' ], { cwd: out, stdio: 'inherit' } )
+		const cc = $node.child_process.spawnSync( 'zig', [ 'cc', ...( triple ? [ '-target', triple ] : [] ), '-std=c11', '-O2', '-o', binary, 'main.c', 'rt.c' ], { cwd: out, stdio: 'inherit' } )
 		if( cc.status !== 0 ) return cc.status ?? 1
 
-		if( mode === 'test' ) return $node.child_process.spawnSync( binary, [], { stdio: [ 'ignore', 'inherit', 'inherit' ] } ).status ?? 1
+		if( mode === 'test' && !triple ) return $node.child_process.spawnSync( binary, [], { stdio: [ 'ignore', 'inherit', 'inherit' ] } ).status ?? 1
 
 		console.log( $node.path.relative( root, binary ) )
 		return 0

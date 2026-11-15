@@ -27,6 +27,8 @@ zig cc -std=c11 -O2 -Ibog/wire/rt -o hello main.c bog/wire/rt/rt.c
 
 `build` собирает `-/native` из `action main()` в `.native.wire` самого модуля, `test` собирает и запускает тесты, `c` печатает C.
 
+`build <модуль> --target <zig-target>` кросс-компилирует: `--target x86_64-linux-musl`, `--target x86_64-windows-gnu`. Тесты после кросс-сборки не запускаются.
+
 ## Язык
 
 ```wire

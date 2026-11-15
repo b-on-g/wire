@@ -2,6 +2,14 @@
 #include "rt.h"
 
 #include <setjmp.h>
+
+#ifdef _WIN32
+#define WIRE_SETJMP( buf ) setjmp( buf )
+#define WIRE_LONGJMP( buf, val ) longjmp( buf, val )
+#else
+#define WIRE_SETJMP( buf ) _setjmp( buf )
+#define WIRE_LONGJMP( buf, val ) _longjmp( buf, val )
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1052,7 +1060,7 @@ static bool owning( const wire_type* type, wire_val value, wire_id* kid ) {
 
 void wire_wait( void ) {
 	if( !rt.frame ) fail( "wait outside of task" );
-	_longjmp( rt.frame->jump, 1 );
+	WIRE_LONGJMP( rt.frame->jump, 1 );
 }
 
 static void calc( wire_id id, const wire_val* next ) {
@@ -1073,7 +1081,7 @@ static void calc( wire_id id, const wire_val* next ) {
 	frame.prev = rt.frame;
 	rt.frame = &frame;
 
-	if( _setjmp( frame.jump ) ) {
+	if( WIRE_SETJMP( frame.jump ) ) {
 		rt.frame = frame.prev;
 		rt.current = current;
 		scope_end( mark_scope );
@@ -1399,7 +1407,7 @@ static bool attempt( wire_task* task ) {
 	frame.prev = rt.frame;
 	rt.frame = &frame;
 
-	if( _setjmp( frame.jump ) ) {
+	if( WIRE_SETJMP( frame.jump ) ) {
 		rt.frame = frame.prev;
 		rt.current = current;
 		scope_end( mark_scope );
