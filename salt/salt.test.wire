@@ -5,15 +5,25 @@ object $bog_wire_salt_test {
 	}
 
 	action free_is_total_minus_orders() {
-		salt.order( "o1", 3 )
-		salt.order( "o2", 2 )
-		assert( salt.free == 5 )
+		salt.orders.add( "o1", 3 )
+		salt.orders.add( "o2", 2 )
+		assert( salt.balance.free == 5 )
+	}
+
+	action rewrite_order_recalculates_free() {
+		salt.orders.add( "o1", 3 )
+		salt.orders.order( "o1", 5 )
+		assert( salt.balance.free == 5 )
 	}
 
 	action cancel_returns_salt() {
-		salt.order( "o1", 3 )
-		salt.cancel( "o1" )
-		assert( salt.free == 10 )
+		salt.orders.add( "o1", 3 )
+		salt.orders.order( "o1", 0 )
+		assert( salt.balance.free == 10 )
+	}
+
+	action unknown_order_reads_zero() {
+		assert( salt.orders.order( "o9" ) == 0 )
 	}
 
 }

@@ -5,13 +5,13 @@ object $bog_wire_salt_app {
 	}
 
 	action main() {
-		salt.order( "o1", 3 )
-		salt.order( "o2", 2 )
-		print( "свободно {salt.free}" )
-		salt.order( "o3", 4 )
-		print( "свободно {salt.free}" )
-		salt.cancel( "o1" )
-		print( "свободно {salt.free}" )
+		salt.orders.add( "o1", 3 )
+		salt.orders.add( "o2", 2 )
+		print( "свободно {salt.balance.free}" )
+		salt.orders.order( "o2", 5 )
+		print( "свободно {salt.balance.free}" )
+		salt.orders.order( "o1", 0 )
+		print( "свободно {salt.balance.free}" )
 	}
 
 }
