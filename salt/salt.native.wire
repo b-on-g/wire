@@ -1,0 +1,13 @@
+object $bog_wire_salt_app {
+
+	solid salt() {
+		return $bog_wire_salt()
+	}
+
+	action main() {
+		print( "свободно {salt.free}" )
+		salt.order( 4 )
+		print( "свободно {salt.free}" )
+	}
+
+}

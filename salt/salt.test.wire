@@ -1,0 +1,16 @@
+object $bog_wire_salt_test {
+
+	salt() {
+		return $bog_wire_salt()
+	}
+
+	action free_is_total_minus_orders() {
+		assert( salt.free == 5 )
+	}
+
+	action new_order_recalculates_free() {
+		salt.order( 4 )
+		assert( salt.free == 1 )
+	}
+
+}

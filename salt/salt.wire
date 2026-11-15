@@ -1,0 +1,23 @@
+object $bog_wire_salt {
+
+	solid orders( next?: list int ) {
+		return next ?? [ 3, 2 ]
+	}
+
+	total(): int {
+		return 10
+	}
+
+	ordered(): int {
+		return orders.sum
+	}
+
+	free(): int {
+		return total - ordered
+	}
+
+	action order( qty: int ) {
+		orders( [ ...orders, qty ] )
+	}
+
+}
