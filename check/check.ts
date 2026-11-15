@@ -13,7 +13,7 @@ namespace $ {
 		| { kind: 'field', record: string, index: number }
 		| { kind: 'list', op: string }
 		| { kind: 'text', op: string }
-		| { kind: 'assert' | 'print' | 'stdin' }
+		| { kind: 'assert' | 'print' | 'stdin' | 'file' | 'write' | 'exec' }
 		| { kind: 'after', owner: string, member: string }
 		| { kind: 'invoke', owner: string, member: string, mode: 'read' | 'write' | 'action' }
 
@@ -85,7 +85,7 @@ namespace $ {
 
 	const prims = new Set([ 'int', 'float', 'bool', 'text' ])
 
-	const builtins = new Set([ 'assert', 'print', 'after', 'stdin' ])
+	const builtins = new Set([ 'assert', 'print', 'after', 'stdin', 'file', 'write', 'exec' ])
 
 	export class $bog_wire_check {
 
@@ -487,6 +487,27 @@ namespace $ {
 				if( !fits( index, int ) ) this.fail( expr.args[0].span, `Expected int, got ${ show( index ) }` )
 				this.refs.set( expr, { kind: 'stdin' } )
 				return maybe( text )
+			}
+
+			if( builtin && callee.name === 'file' ) {
+				if( expr.args.length !== 1 ) return this.fail( expr.span, 'file takes one text' )
+				const path = this.expr( expr.args[0], scope )
+				if( !fits( path, text ) ) this.fail( expr.args[0].span, `Expected text, got ${ show( path ) }` )
+				this.refs.set( expr, { kind: 'file' } )
+				return maybe( text )
+			}
+
+			if( builtin && ( callee.name === 'write' || callee.name === 'exec' ) ) {
+				if( !scope.action ) return this.fail( expr.span, `${ callee.name } is allowed only in action` )
+				this.effects.add( expr )
+				const params = callee.name === 'write' ? [ text, text ] : [ text, list( text ) ]
+				if( expr.args.length !== params.length ) return this.fail( expr.span, `${ callee.name } takes ${ params.map( show ).join( ' and ' ) }` )
+				params.forEach( ( param, index ) => {
+					const type = this.expr( expr.args[ index ], scope )
+					if( !fits( type, param ) ) this.fail( expr.args[ index ].span, `Expected ${ show( param ) }, got ${ show( type ) }` )
+				} )
+				this.refs.set( expr, { kind: callee.name } )
+				return callee.name === 'write' ? bool : int
 			}
 
 			if( builtin && callee.name === 'after' ) {

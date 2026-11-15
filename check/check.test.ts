@@ -288,6 +288,28 @@ namespace $ {
 			] )
 		},
 
+		'file reads in memo, write and exec only in action'() {
+			$mol_assert_equal( errors(
+				'object $bog_wire_check_x {',
+				'	body = file( "a" ) ?? ""',
+				'	bad_write = write( "a", "b" )',
+				'	bad_exec = exec( "a", [] )',
+				'	bad_file = file( 1 )',
+				'	action run() {',
+				'		write( "a", 1 )',
+				'		exec( "a", "b" )',
+				'		assert( write( "a", "b" ) && exec( "a", [ "b" ] ) == 0 )',
+				'	}',
+				'}',
+			), [
+				'write is allowed only in action @3',
+				'exec is allowed only in action @4',
+				'Expected text, got int @5',
+				'Expected text, got int @7',
+				'Expected list text, got text @8',
+			] )
+		},
+
 		'duplicates'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',

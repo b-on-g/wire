@@ -140,6 +140,11 @@ bool wire_eq( const wire_type* type, wire_val left, wire_val right );
 
 wire_val wire_keep( const wire_type* type, wire_val value );
 bool wire_effect( void );
+void wire_result_set( int64_t value );
+int64_t wire_result_get( void );
+wire_val wire_file( wire_val path );
+bool wire_write( wire_val path, wire_val text );
+int64_t wire_exec( wire_val command, wire_val args );
 void wire_wait( void );
 wire_val wire_stdin( int64_t index );
 

@@ -481,6 +481,22 @@ namespace $ {
 				return ''
 			}
 
+			if( ref.kind === 'file' ) {
+				push( `wire_val ${ out } = wire_file( ${ this.expr( expr.args[0], ctx ) } );` )
+				return out
+			}
+
+			if( ref.kind === 'write' || ref.kind === 'exec' ) {
+				const args = expr.args.map( arg => this.expr( arg, ctx ) )
+				const field = ref.kind === 'write' ? 'b' : 'i'
+				push( `wire_val ${ out };` )
+				push( `if( wire_effect() ) {` )
+				push( `\t${ out }.${ field } = wire_${ ref.kind }( ${ args.join( ', ' ) } );` )
+				push( `\twire_result_set( ${ out }.${ field } );` )
+				push( `} else ${ out }.${ field } = wire_result_get();` )
+				return out
+			}
+
 			if( ref.kind === 'stdin' ) {
 				const index = this.expr( expr.args[0], ctx )
 				push( `wire_val ${ out } = wire_stdin( ${ index }.i );` )

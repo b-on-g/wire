@@ -1,0 +1,40 @@
+object $bog_wire_io_test {
+
+	path = "/tmp/bog_wire_io_test.txt"
+
+	size( name: text ) = ( file( name ) ?? "" ).size
+
+	action missing_file_is_none() {
+		assert( file( "/tmp/bog_wire_io_missing/none" ) == none )
+	}
+
+	action write_then_read() {
+		assert( write( path, "one\ntwo" ) )
+		assert( file( path ) == "one\ntwo" )
+		assert( size( path ) == 7 )
+	}
+
+	action rewrite_replaces_text() {
+		assert( write( path, "long text" ) )
+		assert( write( path, "x" ) )
+		assert( file( path ) == "x" )
+	}
+
+	action write_to_missing_folder_fails() {
+		assert( !write( "/tmp/bog_wire_io_missing/none", "x" ) )
+	}
+
+	action exec_returns_exit_code() {
+		assert( exec( "true", [] ) == 0 )
+		assert( exec( "false", [] ) == 1 )
+		assert( exec( "bog_wire_no_such_command", [] ) == 127 )
+	}
+
+	action exec_passes_args() {
+		assert( write( path, "" ) )
+		assert( exec( "sh", [ "-c", "echo {path} hi > {path}" ] ) == 0 )
+		assert( file( path ) == "{path} hi\n" )
+		assert( exec( "echo", [ "a", "b" ] ) == 0 )
+	}
+
+}

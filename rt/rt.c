@@ -4,6 +4,13 @@
 #include <setjmp.h>
 
 #ifdef _WIN32
+#include <process.h>
+#else
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
+#ifdef _WIN32
 #define WIRE_SETJMP( buf ) setjmp( buf )
 #define WIRE_LONGJMP( buf, val ) longjmp( buf, val )
 #else
@@ -640,6 +647,8 @@ static struct {
 	wire_frame* frame;
 	int effect_index;
 	int effect_done;
+	int64_t* results;
+	int results_cap;
 	wire_ids touched;
 	wire_ids orphans;
 	wire_obj** garbage;
@@ -1339,6 +1348,70 @@ bool wire_effect( void ) {
 	return true;
 }
 
+void wire_result_set( int64_t value ) {
+	if( rt.effect_index >= rt.results_cap ) {
+		rt.results_cap = rt.effect_index * 2 + 8;
+		rt.results = grow( rt.results, sizeof( int64_t ) * rt.results_cap );
+	}
+	rt.results[ rt.effect_index ] = value;
+}
+
+int64_t wire_result_get( void ) {
+	return rt.results[ rt.effect_index ];
+}
+
+wire_val wire_file( wire_val path ) {
+	FILE* file = fopen( ( ( wire_text* ) path.box )->bytes, "rb" );
+	if( !file ) return ( wire_val ){ .box = NULL };
+
+	wire_buf buf = { 0 };
+	char chunk[ 4096 ];
+	size_t got;
+	while( ( got = fread( chunk, 1, sizeof chunk, file ) ) > 0 ) wire_buf_lit( &buf, chunk, got );
+	fclose( file );
+
+	wire_val text = wire_text_lit( buf.data ? buf.data : "", buf.len );
+	free( buf.data );
+	return wire_some_new( &maybe_text_type, text );
+}
+
+bool wire_write( wire_val path, wire_val text ) {
+	FILE* file = fopen( ( ( wire_text* ) path.box )->bytes, "wb" );
+	if( !file ) return false;
+	wire_text* own = ( wire_text* ) text.box;
+	bool ok = fwrite( own->bytes, 1, own->len, file ) == ( size_t ) own->len;
+	return fclose( file ) == 0 && ok;
+}
+
+int64_t wire_exec( wire_val command, wire_val args ) {
+	wire_list* list = ( wire_list* ) args.box;
+	char** argv = grow( NULL, sizeof( char* ) * ( list->len + 2 ) );
+	argv[ 0 ] = ( ( wire_text* ) command.box )->bytes;
+	for( int64_t i = 0; i < list->len; ++i ) argv[ i + 1 ] = ( ( wire_text* ) list->items[ i ].box )->bytes;
+	argv[ list->len + 1 ] = NULL;
+
+	fflush( stdout );
+	fflush( stderr );
+
+#ifdef _WIN32
+	int64_t code = _spawnvp( _P_WAIT, argv[ 0 ], ( const char* const* ) argv );
+#else
+	int64_t code = -1;
+	pid_t pid = fork();
+	if( pid == 0 ) {
+		execvp( argv[ 0 ], argv );
+		_exit( 127 );
+	}
+	if( pid > 0 ) {
+		int status = 0;
+		if( waitpid( pid, &status, 0 ) == pid ) code = WIFEXITED( status ) ? WEXITSTATUS( status ) : -1;
+	}
+#endif
+
+	free( argv );
+	return code;
+}
+
 void wire_assert( bool ok, const char* where ) {
 	if( ok ) return;
 	wire_failures += 1;
@@ -1357,6 +1430,8 @@ typedef struct {
 	wire_id node;
 	wire_action action;
 	int done;
+	int64_t* results;
+	int results_cap;
 } wire_task;
 
 typedef struct {
@@ -1390,7 +1465,7 @@ static wire_task tasks_pop( wire_tasks* queue ) {
 }
 
 void wire_after( wire_obj* obj, wire_action action ) {
-	tasks_push( &tasks, ( wire_task ){ obj, obj->node, action, 0 } );
+	tasks_push( &tasks, ( wire_task ){ obj, obj->node, action, 0, NULL, 0 } );
 }
 
 static bool attempt( wire_task* task ) {
@@ -1398,6 +1473,8 @@ static bool attempt( wire_task* task ) {
 
 	rt.effect_index = 0;
 	rt.effect_done = task->done;
+	rt.results = task->results;
+	rt.results_cap = task->results_cap;
 
 	int mark_scope = scope.len;
 	wire_id current = rt.current;
@@ -1412,10 +1489,16 @@ static bool attempt( wire_task* task ) {
 		rt.current = current;
 		scope_end( mark_scope );
 		task->done = rt.effect_done;
+		task->results = rt.results;
+		task->results_cap = rt.results_cap;
 		return false;
 	}
 
 	task->action( task->obj, NULL );
+
+	free( rt.results );
+	rt.results = NULL;
+	rt.results_cap = 0;
 
 	rt.frame = frame.prev;
 	rt.current = current;
@@ -1424,7 +1507,7 @@ static bool attempt( wire_task* task ) {
 }
 
 static void run( wire_obj* root, wire_action action ) {
-	tasks_push( &tasks, ( wire_task ){ root, root->node, action, 0 } );
+	tasks_push( &tasks, ( wire_task ){ root, root->node, action, 0, NULL, 0 } );
 
 	while( true ) {
 
