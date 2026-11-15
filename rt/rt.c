@@ -235,7 +235,21 @@ static bool tail_byte( char byte ) {
 	return ( ( unsigned char ) byte & 0xC0 ) == 0x80;
 }
 
+static bool text_ascii( wire_text* text ) {
+	if( !text->ascii ) {
+		text->ascii = 1;
+		for( int64_t i = 0; i < text->len; ++i ) {
+			if( ( unsigned char ) text->bytes[ i ] >= 0x80 ) {
+				text->ascii = 2;
+				break;
+			}
+		}
+	}
+	return text->ascii == 1;
+}
+
 static int64_t byte_at( wire_text* text, int64_t point ) {
+	if( text_ascii( text ) ) return point < text->len ? point : text->len;
 	int64_t index = 0;
 	int64_t seen = 0;
 	while( index < text->len ) {
@@ -249,6 +263,7 @@ static int64_t byte_at( wire_text* text, int64_t point ) {
 }
 
 static int64_t point_at( wire_text* text, int64_t byte ) {
+	if( text_ascii( text ) ) return byte;
 	int64_t count = 0;
 	for( int64_t i = 0; i < byte; ++i ) if( !tail_byte( text->bytes[ i ] ) ) count += 1;
 	return count;

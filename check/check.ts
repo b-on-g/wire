@@ -222,14 +222,32 @@ namespace $ {
 			return member.kind === 'abstract' ? [] : member.params.filter( param => !param.next )
 		}
 
+		pure_pending = new Set< Member >()
+
 		pure( member: Member ) {
 			if( member.kind !== 'memo' || member.solid ) return false
 			if( !this.keys( member ).length || this.next( member ) ) return false
-			return this.reads_params_only( member.body )
+			if( this.pure_pending.has( member ) ) return true
+
+			const owner = [ ... this.decls.values() ].find( decl => decl.kind === 'object' && decl.members.includes( member ) ) as Owner
+			if( !this.inferring.has( member ) ) this.body_type( owner, member )
+
+			this.pure_pending.add( member )
+			try {
+				return this.reads_params_only( member.body )
+			} finally {
+				this.pure_pending.delete( member )
+			}
 		}
 
 		reads_params_only( expr: Expr ): boolean {
 			const ref = this.refs.get( expr )
+
+			if( expr.kind === 'call' && ref?.kind === 'invoke' && ref.mode === 'read' && expr.callee.kind === 'name' ) {
+				const callee = this.member( this.decls.get( ref.owner ) as Owner, ref.member )
+				return !!callee && this.pure( callee ) && expr.args.every( arg => this.reads_params_only( arg ) )
+			}
+
 			if( ref && ![ 'param', 'field', 'list', 'text', 'dict' ].includes( ref.kind ) ) return false
 
 			switch( expr.kind ) {

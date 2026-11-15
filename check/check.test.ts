@@ -363,6 +363,25 @@ namespace $ {
 			] )
 		},
 
+		'pure method may call pure methods of its owner'() {
+			$mol_assert_equal( errors(
+				'object $bog_wire_check_x {',
+				'	items: list int',
+				'	solid state( next?: int ) = next ?? 0',
+				'	twice( value: int ) = value * 2',
+				'	deep( value: int ): int = value > 0 ? deep( value - 1 ) : twice( value )',
+				'	reads( value: int ) = value + state',
+				'	indirect( value: int ) = reads( value )',
+				'	good( acc: int, item: int ) = acc + deep( item )',
+				'	bad( acc: int, item: int ) = acc + indirect( item )',
+				'	ok = items.fold( good, 0 )',
+				'	not_ok = items.fold( bad, 0 )',
+				'}',
+			), [
+				'bad must read only its params @11',
+			] )
+		},
+
 		'duplicates'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',

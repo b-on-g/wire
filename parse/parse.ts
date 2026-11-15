@@ -14,7 +14,7 @@ namespace $ {
 		[ '*', '/', '%' ],
 	]
 
-	const escapes: Record< string, string > = { n: '\n', t: '\t', '"': '"', '\\': '\\', '{': '{', '}': '}' }
+	const escapes: Record< string, string > = { n: '\n', r: '\r', t: '\t', '"': '"', '\\': '\\', '{': '{', '}': '}' }
 
 	function close( raw: string, open: number ) {
 		let depth = 0

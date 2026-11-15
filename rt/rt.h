@@ -45,6 +45,7 @@ typedef struct {
 	wire_box head;
 	int64_t len;
 	uint64_t hash;
+	int ascii;
 	char bytes[];
 } wire_text;
 
