@@ -5,6 +5,7 @@ namespace $ {
 		| { kind: 'ref', name: string, span: $mol_span }
 		| { kind: 'list', item: $bog_wire_ast_type, span: $mol_span }
 		| { kind: 'maybe', item: $bog_wire_ast_type, span: $mol_span }
+		| { kind: 'dict', key: $bog_wire_ast_type, item: $bog_wire_ast_type, span: $mol_span }
 
 	export type $bog_wire_ast_entry = {
 		kind: 'bind' | 'field' | 'short'
@@ -20,6 +21,7 @@ namespace $ {
 		| { kind: 'none', span: $mol_span }
 		| { kind: 'name', name: string, span: $mol_span }
 		| { kind: 'list', items: $bog_wire_ast_expr[], span: $mol_span }
+		| { kind: 'dict', entries: { key: $bog_wire_ast_expr, value: $bog_wire_ast_expr }[], span: $mol_span }
 		| { kind: 'spread', value: $bog_wire_ast_expr, span: $mol_span }
 		| { kind: 'make', type: string, entries: $bog_wire_ast_entry[], span: $mol_span }
 		| { kind: 'call', callee: $bog_wire_ast_expr, args: $bog_wire_ast_expr[], span: $mol_span }

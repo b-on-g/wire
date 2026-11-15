@@ -338,6 +338,31 @@ namespace $ {
 			] )
 		},
 
+		'dict keys, values and operations'() {
+			$mol_assert_equal( errors(
+				'object $bog_wire_check_x {',
+				'	ages: dict text int',
+				'	ok = ages.set( "a", 1 ).get( "a" ) ?? ages.size',
+				'	names: list text = ages.keys',
+				'	bad_key_type: dict float int = [:]',
+				'	bad_key_literal = [ 1.5: 1 ]',
+				'	bad_get = ages.get( 1 )',
+				'	bad_set = ages.set( "a", "b" )',
+				'	mixed = [ "a": 1, 2: 3 ]',
+				'	bad_op = ages.drop( "a" )',
+				'	bad_field = ages.values',
+				'}',
+			), [
+				'Dict key must be int or text, got float @5',
+				'Dict key must be int or text, got float @6',
+				'Expected text, got int @7',
+				'Expected int, got text @8',
+				'Expected text, got int @9',
+				'Dict has no drop @10',
+				'Dict has no values @11',
+			] )
+		},
+
 		'duplicates'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',

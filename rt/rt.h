@@ -14,6 +14,7 @@ typedef enum {
 	WIRE_MAYBE,
 	WIRE_RECORD,
 	WIRE_OBJECT,
+	WIRE_DICT,
 } wire_kind;
 
 typedef struct wire_type wire_type;
@@ -57,6 +58,13 @@ typedef struct {
 	wire_box head;
 	wire_val fields[];
 } wire_record;
+
+typedef struct {
+	wire_box head;
+	int64_t len;
+	int64_t cap;
+	wire_val items[];
+} wire_dict;
 
 typedef struct {
 	wire_box head;
@@ -166,6 +174,12 @@ void wire_buf_float( wire_buf* buf, double value );
 void wire_buf_bool( wire_buf* buf, bool value );
 void wire_buf_text( wire_buf* buf, wire_val text );
 wire_val wire_buf_done( wire_buf* buf );
+
+wire_val wire_dict_new( const wire_type* type, const wire_val* pairs, int64_t count );
+wire_val wire_dict_get( const wire_type* type, wire_val dict, wire_val key );
+wire_val wire_dict_set( const wire_type* type, wire_val dict, wire_val key, wire_val value );
+int64_t wire_dict_size( wire_val dict );
+wire_val wire_dict_keys( const wire_type* type, wire_val dict );
 
 wire_val wire_some_new( const wire_type* type, wire_val inner );
 

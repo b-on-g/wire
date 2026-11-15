@@ -22,6 +22,7 @@ namespace $ {
 		bool: 'WIRE_BOOL',
 		text: 'WIRE_TEXT',
 		list: 'WIRE_LIST',
+		dict: 'WIRE_DICT',
 		maybe: 'WIRE_MAYBE',
 		record: 'WIRE_RECORD',
 		object: 'WIRE_OBJECT',
@@ -55,6 +56,7 @@ namespace $ {
 		switch( type.kind ) {
 			case 'list': return `list(${ key( type.item ) })`
 			case 'maybe': return `maybe(${ key( type.item ) })`
+			case 'dict': return `dict(${ key( type.key ) },${ key( type.item ) })`
 			case 'record': return type.name
 			case 'object': return type.name
 			case 'method': return `${ type.owner }.${ type.member }`
@@ -117,6 +119,10 @@ namespace $ {
 			if( type.kind === 'list' || type.kind === 'maybe' ) {
 				const item = this.type( type.item )
 				this.type_defs.push( `static const wire_type ${ name } = { ${ kinds[ type.kind ] }, ${ item }, 0, NULL };` )
+			} else if( type.kind === 'dict' ) {
+				const item = this.type( type.item )
+				this.type_defs.push( `static const wire_type* const ${ name }_fields[] = { ${ this.type( type.key ) } };` )
+				this.type_defs.push( `static const wire_type ${ name } = { WIRE_DICT, ${ item }, 1, ${ name }_fields };` )
 			} else if( type.kind === 'record' ) {
 				const shape = this.decl( type.name ) as Shape
 				const fields = shape.fields.map( field => this.type( this.check.type( field.type ) ) )
@@ -152,6 +158,7 @@ namespace $ {
 			if( right.kind === 'none' ) return this.unite( right, left )
 			if( right.kind === 'maybe' && left.kind !== 'maybe' ) return right
 			if( left.kind === 'list' && right.kind === 'list' ) return { kind: 'list', item: this.unite( left.item, right.item ) }
+			if( left.kind === 'dict' && right.kind === 'dict' ) return { kind: 'dict', key: this.unite( left.key, right.key ), item: this.unite( left.item, right.item ) }
 			return left
 		}
 
@@ -373,6 +380,19 @@ namespace $ {
 					return out
 				}
 
+				case 'dict': {
+					const dict = type as Extract< Type, { kind: 'dict' } >
+					const pairs = [] as string[]
+					for( const entry of expr.entries ) {
+						pairs.push( this.coerce( ctx, this.expr( entry.key, ctx ), this.of( entry.key ), dict.key ) )
+						pairs.push( this.coerce( ctx, this.expr( entry.value, ctx ), this.of( entry.value ), dict.item ) )
+					}
+					const array = this.temp()
+					if( pairs.length ) push( `wire_val ${ array }[] = { ${ pairs.join( ', ' ) } };` )
+					push( `wire_val ${ out } = wire_dict_new( ${ this.type( type ) }, ${ pairs.length ? array : 'NULL' }, ${ expr.entries.length } );` )
+					return out
+				}
+
 				case 'unary': {
 					const value = this.expr( expr.value, ctx )
 					if( expr.op === '!' ) push( `wire_val ${ out } = { .b = !${ value }.b };` )
@@ -414,6 +434,11 @@ namespace $ {
 				return this.check.type( shape.fields[ ref.index ].type )
 			}
 			if( ref.kind === 'text' ) return text_fields[ ref.op ]
+			if( ref.kind === 'dict' ) {
+				const target = this.of( expr.target )
+				const dict = ( target.kind === 'maybe' ? target.item : target ) as Extract< Type, { kind: 'dict' } >
+				return ref.op === 'size' ? { kind: 'int' } : { kind: 'list', item: dict.key }
+			}
 			if( ( ref as { op: string } ).op === 'size' ) return { kind: 'int' }
 			const target = this.of( expr.target )
 			const list = ( target.kind === 'maybe' ? target.item : target ) as { item: Type }
@@ -435,6 +460,9 @@ namespace $ {
 					case 'trim': ctx.lines.push( `wire_val ${ out } = wire_text_trim( ${ target } );` ); break
 					default: ctx.lines.push( `wire_val ${ out } = wire_text_${ ref.op }( ${ type }, ${ target } );` )
 				}
+			} else if( ref.kind === 'dict' ) {
+				if( ref.op === 'size' ) ctx.lines.push( `wire_val ${ out } = { .i = wire_dict_size( ${ target } ) };` )
+				else ctx.lines.push( `wire_val ${ out } = wire_dict_keys( ${ this.type( this.field_type( expr ) ) }, ${ target } );` )
 			} else if( ref.kind === 'list' && ref.op === 'size' ) {
 				ctx.lines.push( `wire_val ${ out } = { .i = wire_list_size( ${ target } ) };` )
 			} else {
@@ -504,6 +532,20 @@ namespace $ {
 			}
 
 			if( ref.kind === 'list' ) return this.list_call( expr, ref.op, ctx, out )
+
+			if( ref.kind === 'dict' ) {
+				const dict = this.expr( ( expr.callee as Field ).target, ctx )
+				const type = this.of( expr )
+				if( ref.op === 'get' ) {
+					push( `wire_val ${ out } = wire_dict_get( ${ this.type( type ) }, ${ dict }, ${ this.expr( expr.args[0], ctx ) } );` )
+					return out
+				}
+				const shape = type as Extract< Type, { kind: 'dict' } >
+				const key = this.coerce( ctx, this.expr( expr.args[0], ctx ), this.of( expr.args[0] ), shape.key )
+				const value = this.coerce( ctx, this.expr( expr.args[1], ctx ), this.of( expr.args[1] ), shape.item )
+				push( `wire_val ${ out } = wire_dict_set( ${ this.type( type ) }, ${ dict }, ${ key }, ${ value } );` )
+				return out
+			}
 
 			if( ref.kind === 'text' ) {
 				const text = this.expr( ( expr.callee as Field ).target, ctx )

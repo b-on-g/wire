@@ -52,12 +52,16 @@ static void box_free( void* box ) {
 	free( box );
 }
 
+static void dict_free_items( wire_dict* dict );
+static bool dict_eq( const wire_type* type, wire_val left, wire_val right );
+
 static bool boxed( const wire_type* type ) {
 	switch( type->kind ) {
 		case WIRE_TEXT:
 		case WIRE_LIST:
 		case WIRE_MAYBE:
 		case WIRE_RECORD:
+		case WIRE_DICT:
 			return true;
 		default:
 			return false;
@@ -95,6 +99,10 @@ void wire_release( const wire_type* type, wire_val value ) {
 			for( int i = 0; i < own->fields; ++i ) wire_release( own->field_types[ i ], record->fields[ i ] );
 			break;
 		}
+
+		case WIRE_DICT:
+			dict_free_items( ( wire_dict* ) value.box );
+			break;
 
 		default:
 			break;
@@ -169,6 +177,8 @@ bool wire_eq( const wire_type* type, wire_val left, wire_val right ) {
 			if( !left.box || !right.box ) return false;
 			return wire_eq( type->item, ( ( wire_some* ) left.box )->value, ( ( wire_some* ) right.box )->value );
 		}
+
+		case WIRE_DICT: return dict_eq( type, left, right );
 
 		case WIRE_RECORD: {
 			if( left.box == right.box ) return true;
@@ -868,6 +878,13 @@ static uint64_t hash_of( const wire_type* type, wire_val value ) {
 			return mix( 1, hash_of( type->item, ( ( wire_some* ) value.box )->value ) );
 		}
 
+		case WIRE_DICT: {
+			wire_dict* dict = ( wire_dict* ) value.box;
+			uint64_t sum = 0;
+			for( int64_t i = 0; i < dict->len; ++i ) sum += mix( hash_of( type->field_types[ 0 ], dict->items[ 2 * i ] ), hash_of( type->item, dict->items[ 2 * i + 1 ] ) );
+			return mix( ( uint64_t ) dict->len + 0xd1c7ull, sum );
+		}
+
 		case WIRE_RECORD: {
 			wire_record* record = ( wire_record* ) value.box;
 			uint64_t hash = ( uint64_t ) type->fields;
@@ -878,6 +895,151 @@ static uint64_t hash_of( const wire_type* type, wire_val value ) {
 	}
 
 	return 0;
+}
+
+static int64_t dict_index_cap( int64_t cap ) {
+	int64_t size = 4;
+	while( size < cap * 2 ) size *= 2;
+	return size;
+}
+
+static int32_t* dict_index( wire_dict* dict ) {
+	return ( int32_t* ) ( dict->items + 2 * dict->cap );
+}
+
+static int64_t dict_find( const wire_type* key_type, wire_dict* dict, wire_val key ) {
+	int32_t* index = dict_index( dict );
+	uint64_t mask = ( uint64_t ) dict_index_cap( dict->cap ) - 1;
+	uint64_t slot = hash_of( key_type, key ) & mask;
+
+	while( index[ slot ] >= 0 ) {
+		int64_t found = index[ slot ];
+		if( wire_eq( key_type, dict->items[ 2 * found ], key ) ) return found;
+		slot = ( slot + 1 ) & mask;
+	}
+
+	return -1;
+}
+
+static void dict_free_items( wire_dict* dict ) {
+	const wire_type* own = dict->head.type;
+	for( int64_t i = 0; i < dict->len; ++i ) {
+		wire_release( own->field_types[ 0 ], dict->items[ 2 * i ] );
+		wire_release( own->item, dict->items[ 2 * i + 1 ] );
+	}
+}
+
+static bool dict_eq( const wire_type* type, wire_val left, wire_val right ) {
+	if( left.box == right.box ) return true;
+	wire_dict* a = ( wire_dict* ) left.box;
+	wire_dict* b = ( wire_dict* ) right.box;
+	if( a->len != b->len ) return false;
+
+	for( int64_t i = 0; i < a->len; ++i ) {
+		int64_t found = dict_find( type->field_types[ 0 ], b, a->items[ 2 * i ] );
+		if( found < 0 || !wire_eq( type->item, a->items[ 2 * i + 1 ], b->items[ 2 * found + 1 ] ) ) return false;
+	}
+
+	return true;
+}
+
+wire_val wire_dict_new( const wire_type* type, const wire_val* pairs, int64_t count ) {
+	int64_t size = dict_index_cap( count );
+	wire_dict* dict = box_alloc( sizeof( wire_dict ) + sizeof( wire_val ) * 2 * count + sizeof( int32_t ) * size );
+	dict->head.rc = 1;
+	dict->head.type = type;
+	dict->cap = count;
+	memset( dict_index( dict ), 0xff, sizeof( int32_t ) * size );
+
+	const wire_type* key_type = type->field_types[ 0 ];
+	uint64_t mask = ( uint64_t ) size - 1;
+	int32_t* index = dict_index( dict );
+
+	for( int64_t i = 0; i < count; ++i ) {
+		wire_val key = pairs[ 2 * i ];
+		wire_val value = pairs[ 2 * i + 1 ];
+		int64_t found = dict_find( key_type, dict, key );
+
+		if( found >= 0 ) {
+			wire_retain( type->item, value );
+			wire_release( type->item, dict->items[ 2 * found + 1 ] );
+			dict->items[ 2 * found + 1 ] = value;
+			continue;
+		}
+
+		wire_retain( key_type, key );
+		wire_retain( type->item, value );
+		dict->items[ 2 * dict->len ] = key;
+		dict->items[ 2 * dict->len + 1 ] = value;
+
+		uint64_t slot = hash_of( key_type, key ) & mask;
+		while( index[ slot ] >= 0 ) slot = ( slot + 1 ) & mask;
+		index[ slot ] = ( int32_t ) dict->len++;
+	}
+
+	return wire_keep( type, ( wire_val ){ .box = &dict->head } );
+}
+
+wire_val wire_dict_get( const wire_type* type, wire_val dict, wire_val key ) {
+	wire_dict* own = ( wire_dict* ) dict.box;
+	int64_t found = dict_find( own->head.type->field_types[ 0 ], own, key );
+	if( found < 0 ) return ( wire_val ){ .box = NULL };
+	wire_val value = own->items[ 2 * found + 1 ];
+	if( own->head.type->item->kind == WIRE_MAYBE ) return value;
+	return wire_some_new( type, value );
+}
+
+wire_val wire_dict_set( const wire_type* type, wire_val dict, wire_val key, wire_val value ) {
+	wire_dict* own = ( wire_dict* ) dict.box;
+	int64_t found = dict_find( type->field_types[ 0 ], own, key );
+
+	if( found >= 0 && wire_eq( type->item, own->items[ 2 * found + 1 ], value ) ) {
+		wire_retain( type, dict );
+		return wire_keep( type, dict );
+	}
+
+	wire_val* pairs = grow( NULL, sizeof( wire_val ) * 2 * ( own->len + 1 ) );
+	memcpy( pairs, own->items, sizeof( wire_val ) * 2 * own->len );
+	pairs[ 2 * own->len ] = key;
+	pairs[ 2 * own->len + 1 ] = value;
+	wire_val out = wire_dict_new( type, pairs, own->len + 1 );
+	free( pairs );
+	return out;
+}
+
+int64_t wire_dict_size( wire_val dict ) {
+	return ( ( wire_dict* ) dict.box )->len;
+}
+
+wire_val wire_dict_keys( const wire_type* type, wire_val dict ) {
+	wire_dict* own = ( wire_dict* ) dict.box;
+	const wire_type* key_type = type->item;
+	int64_t len = own->len;
+
+	wire_val* keys = grow( NULL, sizeof( wire_val ) * ( len + 1 ) );
+	wire_val* spare = grow( NULL, sizeof( wire_val ) * ( len + 1 ) );
+	for( int64_t i = 0; i < len; ++i ) keys[ i ] = own->items[ 2 * i ];
+
+	for( int64_t width = 1; width < len; width *= 2 ) {
+		for( int64_t from = 0; from < len; from += 2 * width ) {
+			int64_t middle = from + width < len ? from + width : len;
+			int64_t end = from + 2 * width < len ? from + 2 * width : len;
+			int64_t left = from, right = middle, out = from;
+			while( left < middle && right < end ) spare[ out++ ] = key_cmp( key_type, keys[ right ], keys[ left ] ) < 0 ? keys[ right++ ] : keys[ left++ ];
+			while( left < middle ) spare[ out++ ] = keys[ left++ ];
+			while( right < end ) spare[ out++ ] = keys[ right++ ];
+		}
+		wire_val* swap = keys;
+		keys = spare;
+		spare = swap;
+	}
+
+	wire_list_builder builder;
+	wire_list_begin( &builder, type );
+	for( int64_t i = 0; i < len; ++i ) wire_list_add( &builder, keys[ i ] );
+	free( keys );
+	free( spare );
+	return wire_list_end( &builder );
 }
 
 static uint64_t keys_hash( const wire_member* member, const wire_val* keys ) {

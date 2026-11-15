@@ -39,6 +39,17 @@ namespace $ {
 			$mol_assert_equal( expr( '[]' ), '[]' )
 		},
 
+		'dict literals'() {
+			$mol_assert_equal( expr( '[ "a": 1, "b": x ? 2 : 3 ]' ), '["a":1 "b":(? x 2 3)]' )
+			$mol_assert_equal( expr( '[:]' ), '[:]' )
+			$mol_assert_equal( expr( '[ k: 1, ]' ), '[k:1]' )
+		},
+
+		'dict type'() {
+			const source = 'object $bog_wire_parse_x {\n\tpair( a: dict text int?, b: dict int list text ) = a\n}'
+			$mol_assert_equal( $bog_wire_ast_dump( $bog_wire_parse( source ) ).includes( 'a: dict text int?, b: dict int list text' ), true )
+		},
+
 		'text interpolation'() {
 			$mol_assert_equal( expr( '"{sku} x{qty + 1} = \\{sum\\}\\n"' ), '(text sku " x" (+ qty 1) " = {sum}\\n")' )
 			$mol_assert_equal( expr( '"plain"' ), '"plain"' )

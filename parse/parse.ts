@@ -203,6 +203,10 @@ namespace $ {
 			} else if( token.kind === 'name' && token.text === 'list' ) {
 				this.next()
 				type = { kind: 'list', item: this.type(), span: token.span }
+			} else if( token.kind === 'name' && token.text === 'dict' ) {
+				this.next()
+				const key = this.type()
+				type = { kind: 'dict', key, item: this.type(), span: token.span }
 			} else {
 				return this.fail( token, 'Expected type' )
 			}
@@ -320,13 +324,35 @@ namespace $ {
 
 			if( this.is( '[' ) ) {
 				this.next()
+
+				if( this.is( ':' ) ) {
+					this.next()
+					this.expect( ']' )
+					return { kind: 'dict', entries: [], span: token.span }
+				}
+
 				const items = [] as $bog_wire_ast_expr[]
+				const entries = [] as { key: $bog_wire_ast_expr, value: $bog_wire_ast_expr }[]
 				while( !this.is( ']' ) ) {
 					if( this.is( '...' ) ) {
 						const mark = this.next()
 						items.push({ kind: 'spread', value: this.expr(), span: mark.span })
 					} else {
-						items.push( this.expr() )
+						const item = this.expr()
+						if( this.is( ':' ) && !items.length ) {
+							this.next()
+							entries.push({ key: item, value: this.expr() })
+							while( this.is( ',' ) ) {
+								this.next()
+								if( this.is( ']' ) ) break
+								const key = this.expr()
+								this.expect( ':' )
+								entries.push({ key, value: this.expr() })
+							}
+							this.expect( ']' )
+							return { kind: 'dict', entries, span: token.span }
+						}
+						items.push( item )
 					}
 					if( !this.is( ']' ) ) this.expect( ',' )
 				}

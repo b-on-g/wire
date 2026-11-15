@@ -1,0 +1,64 @@
+object $bog_wire_dict_test {
+
+	ages = [ "bob": 30, "alice": 25, "carol": 41 ]
+
+	reversed = [ "carol": 41, "alice": 25, "bob": 30 ]
+
+	empty: dict text int = [:]
+
+	seen( key: dict text int, next?: int ) = next ?? 0
+
+	grow( dict: dict text list int, name: text, value: int ) = dict.set( name, [ ... ( dict.get( name ) ?? [] ), value ] )
+
+	action reads_by_key() {
+		assert( ages.get( "alice" ) == 25 )
+		assert( ages.get( "dave" ) == none )
+		assert( ( ages.get( "bob" ) ?? 0 ) + 1 == 31 )
+	}
+
+	action size_and_sorted_keys() {
+		assert( ages.size == 3 )
+		assert( ages.keys == [ "alice", "bob", "carol" ] )
+		assert( [ 3: "c", 1: "a", 2: "b" ].keys == [ 1, 2, 3 ] )
+		assert( empty.size == 0 )
+		assert( empty.keys.size == 0 )
+	}
+
+	action set_gives_new_dict() {
+		assert( ages.set( "dave", 7 ).size == 4 )
+		assert( ages.set( "dave", 7 ).get( "dave" ) == 7 )
+		assert( ages.set( "bob", 31 ).get( "bob" ) == 31 )
+		assert( ages.get( "bob" ) == 30 )
+		assert( ages.size == 3 )
+		assert( empty.set( "x", 1 ).get( "x" ) == 1 )
+		assert( [:].set( "x", 1 ).size == 1 )
+	}
+
+	action equality_ignores_order() {
+		assert( ages == reversed )
+		assert( ages != ages.set( "bob", 31 ) )
+		assert( ages != ages.set( "dave", 1 ) )
+		assert( ages.set( "bob", 30 ) == ages )
+		assert( empty == [:] )
+		assert( empty != ages )
+	}
+
+	action equal_dicts_share_memo_key() {
+		seen( ages, 5 )
+		assert( seen( reversed ) == 5 )
+		assert( seen( ages.set( "bob", 31 ) ) == 0 )
+	}
+
+	action last_duplicate_wins() {
+		assert( [ "a": 1, "a": 2 ].get( "a" ) == 2 )
+		assert( [ "a": 1, "a": 2 ].size == 1 )
+	}
+
+	action holds_lists_and_maybes() {
+		assert( grow( grow( [:], "a", 1 ), "a", 2 ).get( "a" ) == [ 1, 2 ] )
+		assert( [ "a": 1, "b": none ].get( "b" ) == none )
+		assert( [ "a": 1, "b": none ].size == 2 )
+		assert( ( [ "a": [ "x": 1 ] ].get( "a" ) ?? [:] ).get( "x" ) == 1 )
+	}
+
+}

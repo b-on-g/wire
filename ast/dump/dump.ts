@@ -6,6 +6,7 @@ namespace $ {
 			case 'ref': return type.name
 			case 'list': return `list ${ type_dump( type.item ) }`
 			case 'maybe': return `${ type_dump( type.item ) }?`
+			case 'dict': return `dict ${ type_dump( type.key ) } ${ type_dump( type.item ) }`
 		}
 	}
 
@@ -19,6 +20,7 @@ namespace $ {
 			case 'name': return expr.name
 			case 'spread': return `...${ dump( expr.value ) }`
 			case 'list': return `[${ expr.items.map( dump ).join( ' ' ) }]`
+			case 'dict': return `[${ expr.entries.map( entry => `${ dump( entry.key ) }:${ dump( entry.value ) }` ).join( ' ' ) || ':' }]`
 			case 'call': return `(call ${ [ expr.callee, ... expr.args ].map( dump ).join( ' ' ) })`
 			case 'field': return `(${ expr.maybe ? '?.' : '.' } ${ dump( expr.target ) } ${ expr.name })`
 			case 'unary': return `(${ expr.op } ${ dump( expr.value ) })`

@@ -3,6 +3,7 @@ namespace $ {
 	export type $bog_wire_check_type =
 		| { kind: 'int' | 'float' | 'bool' | 'text' | 'none' | 'void' | 'never' | 'error' }
 		| { kind: 'list' | 'maybe', item: $bog_wire_check_type }
+		| { kind: 'dict', key: $bog_wire_check_type, item: $bog_wire_check_type }
 		| { kind: 'record' | 'object', name: string }
 		| { kind: 'method', owner: string, member: string }
 
@@ -13,6 +14,7 @@ namespace $ {
 		| { kind: 'field', record: string, index: number }
 		| { kind: 'list', op: string }
 		| { kind: 'text', op: string }
+		| { kind: 'dict', op: string }
 		| { kind: 'assert' | 'print' | 'stdin' | 'file' | 'write' | 'exec' }
 		| { kind: 'after', owner: string, member: string }
 		| { kind: 'invoke', owner: string, member: string, mode: 'read' | 'write' | 'action' }
@@ -48,6 +50,7 @@ namespace $ {
 		switch( type.kind ) {
 			case 'list': return `list ${ show( type.item ) }`
 			case 'maybe': return `${ show( type.item ) }?`
+			case 'dict': return `dict ${ show( type.key ) } ${ show( type.item ) }`
 			case 'record': return type.name
 			case 'object': return type.name
 			case 'method': return `${ type.owner }.${ type.member }`
@@ -57,6 +60,7 @@ namespace $ {
 
 	function same( left: Type, right: Type ): boolean {
 		if( left.kind !== right.kind ) return false
+		if( left.kind === 'dict' ) return same( left.key, ( right as typeof left ).key ) && same( left.item, ( right as typeof left ).item )
 		if( 'item' in left ) return same( left.item, ( right as typeof left ).item )
 		if( 'name' in left ) return left.name === ( right as typeof left ).name
 		if( 'member' in left ) return left.owner === ( right as typeof left ).owner && left.member === ( right as typeof left ).member
@@ -72,6 +76,7 @@ namespace $ {
 			return fits( value, target.item )
 		}
 		if( target.kind === 'list' && value.kind === 'list' ) return fits( value.item, target.item )
+		if( target.kind === 'dict' && value.kind === 'dict' ) return ( value.key.kind === 'never' || same( value.key, target.key ) ) && fits( value.item, target.item )
 		return false
 	}
 
@@ -138,6 +143,11 @@ namespace $ {
 				case 'prim': return { kind: type.name }
 				case 'list': return list( this.type( type.item ) )
 				case 'maybe': return maybe( this.type( type.item ) )
+				case 'dict': {
+					const key = this.type( type.key )
+					if( key.kind !== 'int' && key.kind !== 'text' && key.kind !== 'error' ) this.fail( type.key.span, `Dict key must be int or text, got ${ show( key ) }` )
+					return { kind: 'dict', key, item: this.type( type.item ) }
+				}
 				case 'ref': {
 					const decl = this.decls.get( type.name )
 					if( !decl ) return this.fail( type.span, `Unknown ${ type.name }` )
@@ -220,12 +230,13 @@ namespace $ {
 
 		reads_params_only( expr: Expr ): boolean {
 			const ref = this.refs.get( expr )
-			if( ref && ![ 'param', 'field', 'list', 'text' ].includes( ref.kind ) ) return false
+			if( ref && ![ 'param', 'field', 'list', 'text', 'dict' ].includes( ref.kind ) ) return false
 
 			switch( expr.kind ) {
 				case 'number': case 'bool': case 'none': case 'name': return true
 				case 'text': return expr.parts.every( part => typeof part === 'string' || this.reads_params_only( part ) )
 				case 'list': return expr.items.every( item => this.reads_params_only( item ) )
+				case 'dict': return expr.entries.every( entry => this.reads_params_only( entry.key ) && this.reads_params_only( entry.value ) )
 				case 'spread': return this.reads_params_only( expr.value )
 				case 'make': return this.decls.get( expr.type )?.kind === 'record' && expr.entries.every( entry => !entry.value || this.reads_params_only( entry.value ) )
 				case 'call': return this.reads_params_only( expr.callee ) && expr.args.every( arg => this.reads_params_only( arg ) )
@@ -337,6 +348,23 @@ namespace $ {
 						else item = united
 					}
 					return list( item )
+				}
+
+				case 'dict': {
+					let key: Type = never
+					let item: Type = never
+					for( const entry of expr.entries ) {
+						const key_type = this.expr( entry.key, scope )
+						const item_type = this.expr( entry.value, scope )
+						if( key_type.kind !== 'error' && key_type.kind !== 'int' && key_type.kind !== 'text' ) this.fail( entry.key.span, `Dict key must be int or text, got ${ show( key_type ) }` )
+						const united_key = unite( key, key_type )
+						if( !united_key ) this.fail( entry.key.span, `Expected ${ show( key ) }, got ${ show( key_type ) }` )
+						else key = united_key
+						const united = unite( item, item_type )
+						if( !united ) this.fail( entry.value.span, `Expected ${ show( item ) }, got ${ show( item_type ) }` )
+						else item = united
+					}
+					return { kind: 'dict', key, item }
 				}
 
 				case 'spread': return this.fail( expr.span, 'Spread is allowed only in list' )
@@ -452,6 +480,12 @@ namespace $ {
 				return this.fail( expr.span, `List has no ${ expr.name }` )
 			}
 
+			if( target.kind === 'dict' ) {
+				if( expr.name !== 'size' && expr.name !== 'keys' ) return this.fail( expr.span, `Dict has no ${ expr.name }` )
+				this.refs.set( expr, { kind: 'dict', op: expr.name } )
+				return expr.name === 'size' ? int : list( target.key )
+			}
+
 			if( target.kind === 'text' ) {
 				const fields: { [ name: string ]: Type } = {
 					size: int,
@@ -542,6 +576,7 @@ namespace $ {
 				if( target.kind === 'error' ) return error
 				if( target.kind === 'list' ) return this.list_call( target, callee.name, expr, scope )
 				if( target.kind === 'text' ) return this.text_call( callee.name, expr, scope )
+				if( target.kind === 'dict' ) return this.dict_call( target, callee.name, expr, scope )
 				if( target.kind === 'object' ) {
 					const owner = this.decls.get( target.name ) as Owner
 					const member = this.member( owner, callee.name )
@@ -553,6 +588,24 @@ namespace $ {
 			}
 
 			return this.fail( expr.span, 'Not callable' )
+		}
+
+		dict_call( target: Extract< Type, { kind: 'dict' } >, name: string, expr: Extract< Expr, { kind: 'call' } >, scope: Scope ): Type {
+			if( name !== 'get' && name !== 'set' ) return this.fail( expr.callee.span, `Dict has no ${ name }` )
+			const arity = name === 'get' ? 1 : 2
+			if( expr.args.length !== arity ) return this.fail( expr.span, `${ name } takes ${ arity } args` )
+
+			const key = this.expr( expr.args[0], scope )
+			if( target.key.kind !== 'never' && !fits( key, target.key ) ) this.fail( expr.args[0].span, `Expected ${ show( target.key ) }, got ${ show( key ) }` )
+			if( target.key.kind === 'never' && key.kind !== 'int' && key.kind !== 'text' && key.kind !== 'error' ) this.fail( expr.args[0].span, `Dict key must be int or text, got ${ show( key ) }` )
+			this.refs.set( expr, { kind: 'dict', op: name } )
+
+			if( name === 'get' ) return maybe( target.item )
+
+			const value = this.expr( expr.args[1], scope )
+			if( target.item.kind === 'never' ) return { kind: 'dict', key: target.key.kind === 'never' ? key : target.key, item: value }
+			if( !fits( value, target.item ) ) this.fail( expr.args[1].span, `Expected ${ show( target.item ) }, got ${ show( value ) }` )
+			return target.key.kind === 'never' ? { kind: 'dict', key, item: target.item } : target
 		}
 
 		text_call( name: string, expr: Extract< Expr, { kind: 'call' } >, scope: Scope ): Type {
