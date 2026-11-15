@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE
 #include "rt.h"
 
 #include <setjmp.h>
@@ -573,6 +574,7 @@ typedef struct {
 	bool has_owner;
 	wire_id owner;
 	wire_ids kids;
+	int kids_gone;
 	wire_ids pubs;
 	wire_ids subs;
 	wire_obj* obj;
@@ -750,6 +752,7 @@ static void destroy( wire_id id );
 
 static void release_kids( wire_id id, const wire_id* keep ) {
 	wire_ids kids = ids_take( &node_of( id )->kids );
+	node_of( id )->kids_gone = 0;
 	for( int i = 0; i < kids.len; ++i ) {
 		if( keep && same( *keep, kids.items[ i ] ) ) ids_push( &node_of( id )->kids, kids.items[ i ] );
 		else destroy( kids.items[ i ] );
@@ -757,13 +760,132 @@ static void release_kids( wire_id id, const wire_id* keep ) {
 	ids_free( &kids );
 }
 
-static void map_remove( wire_obj* obj, int map, wire_id atom ) {
-	wire_map* own = &obj->maps[ map ];
-	for( int i = 0; i < own->len; ++i ) {
-		if( !same( own->items[ i ].atom, atom ) ) continue;
-		own->items[ i ] = own->items[ --own->len ];
+enum { SLOT_EMPTY = -1, SLOT_GONE = -2 };
+
+static uint64_t mix( uint64_t hash, uint64_t value ) {
+	hash ^= value + 0x9e3779b97f4a7c15ull + ( hash << 6 ) + ( hash >> 2 );
+	return hash;
+}
+
+static uint64_t hash_of( const wire_type* type, wire_val value ) {
+	switch( type->kind ) {
+
+		case WIRE_VOID: return 0;
+		case WIRE_INT: return ( uint64_t ) value.i * 0x9e3779b97f4a7c15ull;
+		case WIRE_BOOL: return value.b;
+		case WIRE_OBJECT: return ( uint64_t ) ( uintptr_t ) value.obj * 0x9e3779b97f4a7c15ull;
+
+		case WIRE_FLOAT: {
+			double f = value.f == 0 ? 0 : value.f;
+			uint64_t bits;
+			memcpy( &bits, &f, sizeof bits );
+			return bits * 0x9e3779b97f4a7c15ull;
+		}
+
+		case WIRE_TEXT: {
+			wire_text* text = ( wire_text* ) value.box;
+			uint64_t hash = 1469598103934665603ull;
+			for( int64_t i = 0; i < text->len; ++i ) hash = ( hash ^ ( uint8_t ) text->bytes[ i ] ) * 1099511628211ull;
+			return hash;
+		}
+
+		case WIRE_LIST: {
+			wire_list* list = ( wire_list* ) value.box;
+			uint64_t hash = ( uint64_t ) list->len;
+			for( int64_t i = 0; i < list->len; ++i ) hash = mix( hash, hash_of( type->item, list->items[ i ] ) );
+			return hash;
+		}
+
+		case WIRE_MAYBE: {
+			if( !value.box ) return 0x51ed270b27a5ull;
+			return mix( 1, hash_of( type->item, ( ( wire_some* ) value.box )->value ) );
+		}
+
+		case WIRE_RECORD: {
+			wire_record* record = ( wire_record* ) value.box;
+			uint64_t hash = ( uint64_t ) type->fields;
+			for( int i = 0; i < type->fields; ++i ) hash = mix( hash, hash_of( type->field_types[ i ], record->fields[ i ] ) );
+			return hash;
+		}
+
+	}
+
+	return 0;
+}
+
+static uint64_t keys_hash( const wire_member* member, const wire_val* keys ) {
+	uint64_t hash = 0;
+	for( int i = 0; i < member->keys; ++i ) hash = mix( hash, hash_of( member->key_types[ i ], keys[ i ] ) );
+	return hash;
+}
+
+static bool keys_eq( const wire_member* member, const wire_val* left, const wire_val* right );
+
+static void index_put( wire_map* map, uint64_t hash, int entry ) {
+	int mask = map->index_cap - 1;
+	for( int i = ( int ) ( hash & mask ); ; i = ( i + 1 ) & mask ) {
+		if( map->index[ i ] >= 0 ) continue;
+		if( map->index[ i ] == SLOT_EMPTY ) map->index_used += 1;
+		map->index[ i ] = entry;
 		return;
 	}
+}
+
+static void index_rebuild( wire_map* map, const wire_member* member, int cap ) {
+	free( map->index );
+	map->index = malloc( sizeof( int32_t ) * cap );
+	for( int i = 0; i < cap; ++i ) map->index[ i ] = SLOT_EMPTY;
+	map->index_cap = cap;
+	map->index_used = 0;
+	for( int i = 0; i < map->len; ++i ) index_put( map, keys_hash( member, map->items[ i ].keys ), i );
+}
+
+static int index_slot( wire_map* map, const wire_member* member, const wire_val* keys, int entry ) {
+	if( !map->index_cap ) return -1;
+	int mask = map->index_cap - 1;
+	for( int i = ( int ) ( keys_hash( member, keys ) & mask ); ; i = ( i + 1 ) & mask ) {
+		int32_t slot = map->index[ i ];
+		if( slot == SLOT_EMPTY ) return -1;
+		if( slot < 0 ) continue;
+		if( entry >= 0 ? slot == entry : keys_eq( member, map->items[ slot ].keys, keys ) ) return i;
+	}
+}
+
+static int map_find( wire_map* map, const wire_member* member, const wire_val* keys ) {
+	int i = index_slot( map, member, keys, -1 );
+	return i < 0 ? -1 : map->index[ i ];
+}
+
+static void map_add( wire_map* map, const wire_member* member, wire_entry entry ) {
+	if( map->len == map->cap ) {
+		map->cap = map->cap * 2 + 4;
+		map->items = grow( map->items, sizeof( wire_entry ) * map->cap );
+	}
+	map->items[ map->len ] = entry;
+	if( ( map->index_used + 1 ) * 2 > map->index_cap ) {
+		int cap = 16;
+		while( cap < ( map->len + 1 ) * 4 ) cap *= 2;
+		map->len += 1;
+		index_rebuild( map, member, cap );
+		return;
+	}
+	index_put( map, keys_hash( member, entry.keys ), map->len );
+	map->len += 1;
+}
+
+static void map_remove( wire_obj* obj, int map, const wire_member* member, wire_id atom, const wire_val* keys ) {
+	wire_map* own = &obj->maps[ map ];
+	int entry = map_find( own, member, keys );
+	if( entry < 0 || !same( own->items[ entry ].atom, atom ) ) return;
+
+	own->index[ index_slot( own, member, keys, entry ) ] = SLOT_GONE;
+
+	int last = own->len - 1;
+	if( entry != last ) {
+		own->index[ index_slot( own, member, own->items[ last ].keys, last ) ] = entry;
+		own->items[ entry ] = own->items[ last ];
+	}
+	own->len -= 1;
 }
 
 static void destroy( wire_id id ) {
@@ -794,7 +916,15 @@ static void destroy( wire_id id ) {
 
 	if( has_owner ) {
 		wire_node* host = get( owner );
-		if( host ) ids_drop( &host->kids, id );
+		if( host && ++ host->kids_gone * 2 > host->kids.len ) {
+			int keep = 0;
+			for( int i = 0; i < host->kids.len; ++i ) {
+				wire_id kid = host->kids.items[ i ];
+				if( !same( kid, id ) && get( kid ) ) host->kids.items[ keep++ ] = kid;
+			}
+			host->kids.len = keep;
+			host->kids_gone = 0;
+		}
 	}
 
 	for( int i = 0; i < pubs.len; ++i ) {
@@ -815,7 +945,7 @@ static void destroy( wire_id id ) {
 	if( kind == NODE_ATOM ) {
 		if( has_value ) wire_release( member->type, value );
 		if( keys ) {
-			map_remove( obj, map, id );
+			map_remove( obj, map, member, id, keys );
 			for( int i = 0; i < member->keys; ++i ) wire_release( member->key_types[ i ], keys[ i ] );
 			free( keys );
 		}
@@ -823,7 +953,10 @@ static void destroy( wire_id id ) {
 		obj->dead = true;
 		for( int i = 0; i < obj->captured_len; ++i ) wire_release( obj->captured_types[ i ], obj->captured[ i ] );
 		free( obj->captured );
-		for( int i = 0; i < obj->cls->maps; ++i ) free( obj->maps[ i ].items );
+		for( int i = 0; i < obj->cls->maps; ++i ) {
+			free( obj->maps[ i ].items );
+			free( obj->maps[ i ].index );
+		}
 		free( obj->maps );
 		free( obj->atoms );
 		free( obj->binds );
@@ -887,7 +1020,7 @@ static bool owning( const wire_type* type, wire_val value, wire_id* kid ) {
 
 void wire_wait( void ) {
 	if( !rt.frame ) fail( "wait outside of task" );
-	longjmp( rt.frame->jump, 1 );
+	_longjmp( rt.frame->jump, 1 );
 }
 
 static void calc( wire_id id, const wire_val* next ) {
@@ -908,7 +1041,7 @@ static void calc( wire_id id, const wire_val* next ) {
 	frame.prev = rt.frame;
 	rt.frame = &frame;
 
-	if( setjmp( frame.jump ) ) {
+	if( _setjmp( frame.jump ) ) {
 		rt.frame = frame.prev;
 		rt.current = current;
 		scope_end( mark_scope );
@@ -1024,12 +1157,8 @@ wire_val wire_read( wire_obj* obj, const wire_member* member, const wire_val* ke
 
 	if( member->keys ) {
 		wire_map* map = &obj->maps[ member->slot ];
-		for( int i = 0; i < map->len; ++i ) {
-			if( keys_eq( member, map->items[ i ].keys, keys ) ) {
-				id = map->items[ i ].atom;
-				break;
-			}
-		}
+		int found = map_find( map, member, keys );
+		if( found >= 0 ) id = map->items[ found ].atom;
 		if( !get( id ) ) {
 			id = alloc( NODE_ATOM, &owner, false );
 			wire_val* copy = grow( NULL, sizeof( wire_val ) * member->keys );
@@ -1043,11 +1172,8 @@ wire_val wire_read( wire_obj* obj, const wire_member* member, const wire_val* ke
 			node->keys = copy;
 			node->map = member->slot;
 			node->solid = member->solid;
-			if( map->len == map->cap ) {
-				map->cap = map->cap * 2 + 4;
-				map->items = grow( map->items, sizeof( wire_entry ) * map->cap );
-			}
-			map->items[ map->len++ ] = ( wire_entry ){ copy, id };
+			if( found >= 0 ) map->items[ found ] = ( wire_entry ){ copy, id };
+			else map_add( map, member, ( wire_entry ){ copy, id } );
 		}
 	} else {
 		id = obj->atoms[ member->slot ];
@@ -1234,7 +1360,7 @@ static bool attempt( wire_task* task ) {
 	frame.prev = rt.frame;
 	rt.frame = &frame;
 
-	if( setjmp( frame.jump ) ) {
+	if( _setjmp( frame.jump ) ) {
 		rt.frame = frame.prev;
 		rt.current = current;
 		scope_end( mark_scope );

@@ -99,6 +99,9 @@ typedef struct {
 	wire_entry* items;
 	int len;
 	int cap;
+	int32_t* index;
+	int index_cap;
+	int index_used;
 } wire_map;
 
 struct wire_obj {
