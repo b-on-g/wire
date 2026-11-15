@@ -1,0 +1,6 @@
+{
+	"private": true,
+	"dependencies": {
+		"mol_wire_lib": "1.0.1845"
+	}
+}

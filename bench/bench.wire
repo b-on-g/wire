@@ -1,0 +1,58 @@
+object $bog_wire_bench_line {
+
+	id: int
+	orders: $bog_wire_bench_orders
+
+	qty(): int {
+		return orders.order( id )
+	}
+
+}
+
+object $bog_wire_bench_orders {
+
+	solid ids( next?: list int ) {
+		return next ?? []
+	}
+
+	solid order( id: int, next?: int ) {
+		return next ?? 0
+	}
+
+	same( id: int ): int {
+		return id
+	}
+
+	line( id: int ) {
+		return $bog_wire_bench_line {
+			orders <= self
+		}
+	}
+
+	line_qty( line: $bog_wire_bench_line ): int {
+		return line.qty
+	}
+
+	lines() {
+		return ids.map( line )
+	}
+
+	sum(): int {
+		return lines.map( line_qty ).sum
+	}
+
+	action add( id: int, qty: int ) {
+		ids( [ ...ids, id ] )
+		order( id, qty )
+	}
+
+	action set( id: int, qty: int ) {
+		order( id, qty )
+	}
+
+	action cancel( id: int ) {
+		ids( ids.drop( same, id ) )
+		order( id, 0 )
+	}
+
+}

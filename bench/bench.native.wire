@@ -1,0 +1,60 @@
+object $bog_wire_bench_app {
+
+	solid shop() {
+		return $bog_wire_bench_orders()
+	}
+
+	solid seen( next?: int ) {
+		return next ?? 0
+	}
+
+	line() {
+		return stdin( seen )
+	}
+
+	said(): text {
+		return line ?? ""
+	}
+
+	gap(): int {
+		return said.find( " " ) ?? said.size
+	}
+
+	head(): text {
+		return said.slice( 0, gap )
+	}
+
+	rest(): text {
+		return said.slice( gap + 1, said.size )
+	}
+
+	gap2(): int {
+		return rest.find( " " ) ?? rest.size
+	}
+
+	id(): int {
+		return rest.slice( 0, gap2 ).int ?? 0
+	}
+
+	qty(): int {
+		return rest.slice( gap2 + 1, rest.size ).int ?? 0
+	}
+
+	action main() {
+		step()
+	}
+
+	action step() {
+		line == none ? none : handle()
+	}
+
+	action handle() {
+		head == "add" ? shop.add( id, qty ) : none
+		head == "set" ? shop.set( id, qty ) : none
+		head == "cancel" ? shop.cancel( id ) : none
+		head == "print" ? print( "заказано {shop.sum} строк {shop.lines.size}" ) : none
+		seen( seen + 1 )
+		after( step )
+	}
+
+}
