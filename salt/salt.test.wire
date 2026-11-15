@@ -5,12 +5,15 @@ object $bog_wire_salt_test {
 	}
 
 	action free_is_total_minus_orders() {
+		salt.order( "o1", 3 )
+		salt.order( "o2", 2 )
 		assert( salt.free == 5 )
 	}
 
-	action new_order_recalculates_free() {
-		salt.order( 4 )
-		assert( salt.free == 1 )
+	action cancel_returns_salt() {
+		salt.order( "o1", 3 )
+		salt.cancel( "o1" )
+		assert( salt.free == 10 )
 	}
 
 }

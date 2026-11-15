@@ -1,7 +1,11 @@
 object $bog_wire_salt {
 
-	solid orders( next?: list int ) {
-		return next ?? [ 3, 2 ]
+	solid ids( next?: list text ) {
+		return next ?? []
+	}
+
+	solid qty( id: text, next?: int ) {
+		return next ?? 0
 	}
 
 	total(): int {
@@ -9,15 +13,20 @@ object $bog_wire_salt {
 	}
 
 	ordered(): int {
-		return orders.sum
+		return ids.map( qty ).sum
 	}
 
 	free(): int {
 		return total - ordered
 	}
 
-	action order( qty: int ) {
-		orders( [ ...orders, qty ] )
+	action order( id: text, count: int ) {
+		ids( [ ...ids, id ] )
+		qty( id, count )
+	}
+
+	action cancel( id: text ) {
+		qty( id, 0 )
 	}
 
 }
