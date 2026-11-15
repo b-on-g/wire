@@ -455,6 +455,14 @@ wire_val wire_list_find( const wire_type* type, wire_val list, wire_obj* owner, 
 
 wire_val wire_list_upsert( const wire_type* type, wire_val list, wire_obj* owner, const wire_member* member, wire_val key, wire_val value ) {
 	wire_list* own = ( wire_list* ) list.box;
+
+	for( int64_t i = 0; i < own->len; ++i ) {
+		if( !key_match( owner, member, own->items[ i ], key ) ) continue;
+		if( !wire_eq( type->item, own->items[ i ], value ) ) break;
+		wire_retain( type, list );
+		return wire_keep( type, list );
+	}
+
 	wire_list_builder builder;
 	wire_list_begin( &builder, type );
 	bool found = false;
@@ -784,9 +792,10 @@ static uint64_t hash_of( const wire_type* type, wire_val value ) {
 
 		case WIRE_TEXT: {
 			wire_text* text = ( wire_text* ) value.box;
+			if( text->hash ) return text->hash;
 			uint64_t hash = 1469598103934665603ull;
 			for( int64_t i = 0; i < text->len; ++i ) hash = ( hash ^ ( uint8_t ) text->bytes[ i ] ) * 1099511628211ull;
-			return hash;
+			return text->hash = hash | 1;
 		}
 
 		case WIRE_LIST: {
@@ -886,6 +895,8 @@ static void map_remove( wire_obj* obj, int map, const wire_member* member, wire_
 		own->items[ entry ] = own->items[ last ];
 	}
 	own->len -= 1;
+
+	if( ( own->index_used - own->len ) * 4 > own->index_cap ) index_rebuild( own, member, own->index_cap );
 }
 
 static void destroy( wire_id id ) {
@@ -1151,6 +1162,13 @@ static bool keys_eq( const wire_member* member, const wire_val* left, const wire
 
 wire_val wire_read( wire_obj* obj, const wire_member* member, const wire_val* keys, const wire_val* next ) {
 	if( obj->dead ) fail( "access to destroyed object" );
+
+	if( member->pure && !next ) {
+		wire_val out;
+		member->calc( obj, keys, NULL, &out );
+		wire_retain( member->type, out );
+		return wire_keep( member->type, out );
+	}
 
 	wire_id id = none;
 	wire_id owner = obj->node;

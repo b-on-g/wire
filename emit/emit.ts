@@ -192,7 +192,8 @@ namespace $ {
 			}
 
 			this.protos.push( `static void F_${ name }( wire_obj* self, const wire_val* keys, const wire_val* next, wire_val* out );` )
-			this.descriptors.push( `static const wire_member M_${ name } = { ${ cstr( member.name ) }, ${ type }, ${ solid }, ${ keys.length }, ${ key_types }, F_${ name }, ${ this.slots.get( member ) } };` )
+			const pure = this.check.pure( member )
+			this.descriptors.push( `static const wire_member M_${ name } = { ${ cstr( member.name ) }, ${ type }, ${ solid }, ${ keys.length }, ${ key_types }, F_${ name }, ${ this.slots.get( member ) }, ${ pure } };` )
 		}
 
 		memo( owner: Owner, member: Exclude< Member, { kind: 'action' } > ) {

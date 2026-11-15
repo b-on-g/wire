@@ -212,6 +212,32 @@ namespace $ {
 			return member.kind === 'abstract' ? [] : member.params.filter( param => !param.next )
 		}
 
+		pure( member: Member ) {
+			if( member.kind !== 'memo' || member.solid ) return false
+			if( !this.keys( member ).length || this.next( member ) ) return false
+			return this.reads_params_only( member.body )
+		}
+
+		reads_params_only( expr: Expr ): boolean {
+			const ref = this.refs.get( expr )
+			if( ref && ![ 'param', 'field', 'list', 'text' ].includes( ref.kind ) ) return false
+
+			switch( expr.kind ) {
+				case 'number': case 'bool': case 'none': case 'name': return true
+				case 'text': return expr.parts.every( part => typeof part === 'string' || this.reads_params_only( part ) )
+				case 'list': return expr.items.every( item => this.reads_params_only( item ) )
+				case 'spread': return this.reads_params_only( expr.value )
+				case 'make': return this.decls.get( expr.type )?.kind === 'record' && expr.entries.every( entry => !entry.value || this.reads_params_only( entry.value ) )
+				case 'call': return this.reads_params_only( expr.callee ) && expr.args.every( arg => this.reads_params_only( arg ) )
+				case 'field': return this.reads_params_only( expr.target )
+				case 'unary': return this.reads_params_only( expr.value )
+				case 'binary': return this.reads_params_only( expr.left ) && this.reads_params_only( expr.right )
+				case 'cond': return this.reads_params_only( expr.test ) && this.reads_params_only( expr.then ) && this.reads_params_only( expr.else )
+			}
+
+			return false
+		}
+
 		next( member: Member ) {
 			return member.kind === 'memo' ? member.params.find( param => param.next ) ?? null : null
 		}

@@ -89,6 +89,30 @@ namespace $ {
 			] )
 		},
 
+		'keyed method reading only params is pure'() {
+			const module = $bog_wire_parse( [
+				'type $bog_wire_check_pair {',
+				'	id: text',
+				'	qty: int',
+				'}',
+				'object $bog_wire_check_x {',
+				'	solid base( next?: int ) = next ?? 1',
+				'	id_of( pair: $bog_wire_check_pair ) = pair.id',
+				'	twice( n: int ) = n * 2',
+				'	shifted( n: int ) = n + base',
+				'	wrapped( n: int ) = $bog_wire_check_pair{ id: "x", qty: n }',
+				'	total = base * 2',
+				'}',
+			].join( '\n' ) )
+			const check = new $bog_wire_check([ module ])
+			$mol_assert_equal( check.errors.length, 0 )
+
+			const owner = module.decls.find( decl => decl.kind === 'object' )!
+			if( owner.kind !== 'object' ) return
+			const pure = owner.members.filter( member => check.pure( member ) ).map( member => member.name )
+			$mol_assert_equal( pure, [ 'id_of', 'twice', 'wrapped' ] )
+		},
+
 		'same name in param and method needs explicit bind'() {
 			$mol_assert_equal( errors(
 				... item,

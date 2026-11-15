@@ -43,6 +43,7 @@ typedef union wire_val {
 typedef struct {
 	wire_box head;
 	int64_t len;
+	uint64_t hash;
 	char bytes[];
 } wire_text;
 
@@ -81,6 +82,7 @@ typedef struct {
 	const wire_type* const* key_types;
 	wire_calc calc;
 	int slot;
+	bool pure;
 } wire_member;
 
 typedef struct {
