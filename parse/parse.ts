@@ -149,10 +149,7 @@ namespace $ {
 			const params = braced ? this.params() : []
 			const type = this.is( ':' ) ? ( this.next(), this.type() ) : null
 
-			if( this.is( '=' ) ) {
-				this.next()
-				return { kind: 'memo', name: name.text, solid, params, type, body: this.expr(), span: name.span }
-			}
+			if( this.is( '=' ) ) this.fail( this.peek(), 'Write the body: { return … }' )
 
 			if( this.is( '{' ) ) {
 				this.next()
@@ -162,7 +159,7 @@ namespace $ {
 				return { kind: 'memo', name: name.text, solid, params, type, body, span: name.span }
 			}
 
-			if( solid || braced || !type ) this.fail( this.peek(), 'Expected =' )
+			if( solid || braced || !type ) this.fail( this.peek(), 'Expected {' )
 
 			return { kind: 'abstract', name: name.text, type: type!, span: start.span }
 		}

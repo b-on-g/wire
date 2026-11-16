@@ -19,39 +19,59 @@ type $bog_wire_self_lex_state {
 
 object $bog_wire_self_lex {
 
-	start( source: text ) = $bog_wire_self_lex_state{
-		source
-		index: 0
-		resume: 0
-		row: 1
-		col: 1
-		tokens: []
-		stop: none
-		puncts: [
-			"...": 3,
-			"?.": 2, "??": 2, "<=": 2, ">=": 2, "==": 2, "!=": 2, "&&": 2, "||": 2,
-			"\{": 1, "\}": 1, "(": 1, ")": 1, "[": 1, "]": 1, ",": 1, ".": 1, "?": 1, ":": 1,
-			"=": 1, "<": 1, ">": 1, "+": 1, "-": 1, "*": 1, "/": 1, "%": 1, "!": 1,
-		]
+	start( source: text ) {
+		return $bog_wire_self_lex_state{
+			source
+			index: 0
+			resume: 0
+			row: 1
+			col: 1
+			tokens: []
+			stop: none
+			puncts: [
+				"...": 3,
+				"?.": 2, "??": 2, "<=": 2, ">=": 2, "==": 2, "!=": 2, "&&": 2, "||": 2,
+				"\{": 1, "\}": 1, "(": 1, ")": 1, "[": 1, "]": 1, ",": 1, ".": 1, "?": 1, ":": 1,
+				"=": 1, "<": 1, ">": 1, "+": 1, "-": 1, "*": 1, "/": 1, "%": 1, "!": 1,
+			]
+		}
 	}
 
-	name_start( char: text ) = char != "" && "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".find( char ) != none
+	name_start( char: text ) {
+		return char != "" && "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".find( char ) != none
+	}
 
-	name_char( char: text ) = char != "" && "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789".find( char ) != none
+	name_char( char: text ) {
+		return char != "" && "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789".find( char ) != none
+	}
 
-	digit( char: text ) = char != "" && "0123456789".find( char ) != none
+	digit( char: text ) {
+		return char != "" && "0123456789".find( char ) != none
+	}
 
-	name_end( source: text, at: int ): int = name_char( source.slice( at, at + 1 ) ) ? name_end( source, at + 1 ) : at
+	name_end( source: text, at: int ): int {
+		return name_char( source.slice( at, at + 1 ) ) ? name_end( source, at + 1 ) : at
+	}
 
-	digits_end( source: text, at: int ): int = digit( source.slice( at, at + 1 ) ) ? digits_end( source, at + 1 ) : at
+	digits_end( source: text, at: int ): int {
+		return digit( source.slice( at, at + 1 ) ) ? digits_end( source, at + 1 ) : at
+	}
 
-	fraction_end( source: text, at: int ) = source.slice( at, at + 1 ) == "." && digit( source.slice( at + 1, at + 2 ) ) ? digits_end( source, at + 1 ) : at
+	fraction_end( source: text, at: int ) {
+		return source.slice( at, at + 1 ) == "." && digit( source.slice( at + 1, at + 2 ) ) ? digits_end( source, at + 1 ) : at
+	}
 
-	number_end( source: text, at: int ) = fraction_end( source, digits_end( source, at ) )
+	number_end( source: text, at: int ) {
+		return fraction_end( source, digits_end( source, at ) )
+	}
 
-	quoted_end( source: text, at: int ): int = source.slice( at, at + 1 ) == "\"" || source.slice( at, at + 1 ) == "\n" || at >= source.size ? at : quoted_end( source, at + ( source.slice( at, at + 1 ) == "\\" ? 2 : 1 ) )
+	quoted_end( source: text, at: int ): int {
+		return source.slice( at, at + 1 ) == "\"" || source.slice( at, at + 1 ) == "\n" || at >= source.size ? at : quoted_end( source, at + ( source.slice( at, at + 1 ) == "\\" ? 2 : 1 ) )
+	}
 
-	text_end( source: text, at: int, depth: int ): int = text_step( source, at, depth, source.slice( at, at + 1 ) )
+	text_end( source: text, at: int, depth: int ): int {
+		return text_step( source, at, depth, source.slice( at, at + 1 ) )
+	}
 
 	text_step( source: text, at: int, depth: int, char: text ): int =
 		char == "" || char == "\n" || char == "\"" && depth == 0 ? at
@@ -67,66 +87,80 @@ object $bog_wire_self_lex {
 		?? state.puncts.get( state.source.slice( state.index, state.index + 1 ) )
 		?? 0
 
-	lexeme( state: $bog_wire_self_lex_state, kind: text, to: int ) = $bog_wire_self_lex_token{
-		kind
-		text: state.source.slice( state.index, to )
-		row: state.row
-		col: state.col
-		size: to - state.index
+	lexeme( state: $bog_wire_self_lex_state, kind: text, to: int ) {
+		return $bog_wire_self_lex_token{
+			kind
+			text: state.source.slice( state.index, to )
+			row: state.row
+			col: state.col
+			size: to - state.index
+		}
 	}
 
-	skip( state: $bog_wire_self_lex_state ) = $bog_wire_self_lex_state{
-		source: state.source
-		index: state.index + 1
-		resume: state.resume
-		row: state.row
-		col: state.col
-		tokens: state.tokens
-		stop: state.stop
-		puncts: state.puncts
+	skip( state: $bog_wire_self_lex_state ) {
+		return $bog_wire_self_lex_state{
+			source: state.source
+			index: state.index + 1
+			resume: state.resume
+			row: state.row
+			col: state.col
+			tokens: state.tokens
+			stop: state.stop
+			puncts: state.puncts
+		}
 	}
 
-	space( state: $bog_wire_self_lex_state, row: int, col: int ) = $bog_wire_self_lex_state{
-		source: state.source
-		index: state.index + 1
-		resume: state.index + 1
-		row
-		col
-		tokens: state.tokens
-		stop: state.stop
-		puncts: state.puncts
+	space( state: $bog_wire_self_lex_state, row: int, col: int ) {
+		return $bog_wire_self_lex_state{
+			source: state.source
+			index: state.index + 1
+			resume: state.index + 1
+			row
+			col
+			tokens: state.tokens
+			stop: state.stop
+			puncts: state.puncts
+		}
 	}
 
-	take( state: $bog_wire_self_lex_state, token: $bog_wire_self_lex_token, size: int ) = $bog_wire_self_lex_state{
-		source: state.source
-		index: state.index + 1
-		resume: state.index + size
-		row: state.row
-		col: state.col + size
-		tokens: [ ... state.tokens, token ]
-		stop: state.stop
-		puncts: state.puncts
+	take( state: $bog_wire_self_lex_state, token: $bog_wire_self_lex_token, size: int ) {
+		return $bog_wire_self_lex_state{
+			source: state.source
+			index: state.index + 1
+			resume: state.index + size
+			row: state.row
+			col: state.col + size
+			tokens: [ ... state.tokens, token ]
+			stop: state.stop
+			puncts: state.puncts
+		}
 	}
 
-	fail( state: $bog_wire_self_lex_state, reason: text ) = $bog_wire_self_lex_state{
-		source: state.source
-		index: state.index + 1
-		resume: state.resume
-		row: state.row
-		col: state.col
-		tokens: state.tokens
-		stop: reason
-		puncts: state.puncts
+	fail( state: $bog_wire_self_lex_state, reason: text ) {
+		return $bog_wire_self_lex_state{
+			source: state.source
+			index: state.index + 1
+			resume: state.resume
+			row: state.row
+			col: state.col
+			tokens: state.tokens
+			stop: reason
+			puncts: state.puncts
+		}
 	}
 
-	word( state: $bog_wire_self_lex_state, kind: text, to: int ) = take( state, lexeme( state, kind, to ), to - state.index )
+	word( state: $bog_wire_self_lex_state, kind: text, to: int ) {
+		return take( state, lexeme( state, kind, to ), to - state.index )
+	}
 
 	dollar( state: $bog_wire_self_lex_state ) =
 		name_end( state.source, state.index + 1 ) == state.index + 1
 		? fail( state, "Expected name after $" )
 		: word( state, "fqn", name_end( state.source, state.index + 1 ) )
 
-	quote( state: $bog_wire_self_lex_state ) = quote_close( state, text_end( state.source, state.index + 1, 0 ) )
+	quote( state: $bog_wire_self_lex_state ) {
+		return quote_close( state, text_end( state.source, state.index + 1, 0 ) )
+	}
 
 	quote_close( state: $bog_wire_self_lex_state, close: int ) =
 		state.source.slice( close, close + 1 ) == "\""
@@ -139,7 +173,9 @@ object $bog_wire_self_lex {
 		}, close - state.index + 1 )
 		: fail( state, "Unclosed text" )
 
-	punct( state: $bog_wire_self_lex_state ) = punct_take( state, punct_size( state ) )
+	punct( state: $bog_wire_self_lex_state ) {
+		return punct_take( state, punct_size( state ) )
+	}
 
 	punct_take( state: $bog_wire_self_lex_state, size: int ) =
 		size > 0
@@ -158,9 +194,13 @@ object $bog_wire_self_lex {
 	step( state: $bog_wire_self_lex_state, char: text ) =
 		state.index < state.resume || state.stop != none ? skip( state ) : scan( state, char )
 
-	show( token: $bog_wire_self_lex_token ) = "{token.kind} {token.row} {token.col} {token.size} {token.text}"
+	show( token: $bog_wire_self_lex_token ) {
+		return "{token.kind} {token.row} {token.col} {token.size} {token.text}"
+	}
 
-	final( source: text ): $bog_wire_self_lex_state = source.chars.fold( step, start( source ) )
+	final( source: text ): $bog_wire_self_lex_state {
+		return source.chars.fold( step, start( source ) )
+	}
 
 	lines( source: text ) =
 		final( source ).stop == none

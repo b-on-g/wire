@@ -1,6 +1,8 @@
 object $bog_wire_shop_app {
 
-	solid shop = $bog_wire_shop()
+	solid shop() {
+		return $bog_wire_shop()
+	}
 
 	action show() {
 		print( shop.receipt.join( "\n" ) )

@@ -1,6 +1,8 @@
 object $bog_wire_self_lex_main {
 
-	lexer = $bog_wire_self_lex()
+	lexer() {
+		return $bog_wire_self_lex()
+	}
 
 	action main() {
 		print( lexer.lines( file( stdin( 0 ) ?? "" ) ?? "" ).join( "\n" ) )

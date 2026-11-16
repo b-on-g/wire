@@ -2,27 +2,47 @@ object $bog_wire_demonative_command {
 
 	source: text
 
-	input = source.trim
+	input() {
+		return source.trim
+	}
 
-	eq = input.find( "=" ) ?? -1
+	eq() {
+		return input.find( "=" ) ?? -1
+	}
 
-	name = input.slice( 0, eq ).trim
+	name() {
+		return input.slice( 0, eq ).trim
+	}
 
-	formula = input.slice( eq + 1, input.size ).trim
+	formula() {
+		return input.slice( eq + 1, input.size ).trim
+	}
 
-	char( pos: int ) = name.slice( pos, pos + 1 )
+	char( pos: int ) {
+		return name.slice( pos, pos + 1 )
+	}
 
-	upper( pos: int ) = char( pos ) >= "A" && char( pos ) <= "Z"
+	upper( pos: int ) {
+		return char( pos ) >= "A" && char( pos ) <= "Z"
+	}
 
-	digit( pos: int ) = char( pos ) >= "0" && char( pos ) <= "9"
+	digit( pos: int ) {
+		return char( pos ) >= "0" && char( pos ) <= "9"
+	}
 
-	name_from( pos: int ): bool = pos >= name.size || ( upper( pos ) || pos > 0 && digit( pos ) ) && name_from( pos + 1 )
+	name_from( pos: int ): bool {
+		return pos >= name.size || ( upper( pos ) || pos > 0 && digit( pos ) ) && name_from( pos + 1 )
+	}
 
-	skipped = input == "" || input.slice( 0, 1 ) == "#"
+	skipped() {
+		return input == "" || input.slice( 0, 1 ) == "#"
+	}
 
-	error = skipped ? ""
-		: eq < 0 ? "expected NAME = formula"
-		: name == "" || !name_from( 0 ) ? "bad name: {name}"
-		: ""
+	error() {
+		return skipped ? ""
+			: eq < 0 ? "expected NAME = formula"
+			: name == "" || !name_from( 0 ) ? "bad name: {name}"
+			: ""
+	}
 
 }

@@ -1,14 +1,24 @@
 object $bog_wire_dict_test {
 
-	ages = [ "bob": 30, "alice": 25, "carol": 41 ]
+	ages() {
+		return [ "bob": 30, "alice": 25, "carol": 41 ]
+	}
 
-	reversed = [ "carol": 41, "alice": 25, "bob": 30 ]
+	reversed() {
+		return [ "carol": 41, "alice": 25, "bob": 30 ]
+	}
 
-	empty: dict text int = [:]
+	empty(): dict text int {
+		return [:]
+	}
 
-	seen( key: dict text int, next?: int ) = next ?? 0
+	seen( key: dict text int, next?: int ) {
+		return next ?? 0
+	}
 
-	grow( dict: dict text list int, name: text, value: int ) = dict.set( name, [ ... ( dict.get( name ) ?? [] ), value ] )
+	grow( dict: dict text list int, name: text, value: int ) {
+		return dict.set( name, [ ... ( dict.get( name ) ?? [] ), value ] )
+	}
 
 	action reads_by_key() {
 		assert( ages.get( "alice" ) == 25 )

@@ -1,7 +1,7 @@
 namespace $ {
 
 	function expr( source: string ) {
-		return $bog_wire_ast_dump( $bog_wire_parse( `object $bog_wire_parse_t {\n\te = ${ source }\n}` ) ).replace( /^\(object \$bog_wire_parse_t\n\t\(memo e (.*)\)\)$/s, '$1' )
+		return $bog_wire_ast_dump( $bog_wire_parse( `object $bog_wire_parse_t {\n\te() { return ${ source } }\n}` ) ).replace( /^\(object \$bog_wire_parse_t\n\t\(memo e (.*)\)\)$/s, '$1' )
 	}
 
 	function failure( source: string ) {
@@ -46,7 +46,7 @@ namespace $ {
 		},
 
 		'dict type'() {
-			const source = 'object $bog_wire_parse_x {\n\tpair( a: dict text int?, b: dict int list text ) = a\n}'
+			const source = 'object $bog_wire_parse_x {\n\tpair( a: dict text int?, b: dict int list text ) { return a }\n}'
 			$mol_assert_equal( $bog_wire_ast_dump( $bog_wire_parse( source ) ).includes( 'a: dict text int?, b: dict int list text' ), true )
 		},
 
@@ -68,9 +68,9 @@ namespace $ {
 			const source = [
 				'object $bog_wire_parse_x {',
 				'	sku: text',
-				'	solid items( next?: list $bog_wire_parse_item ) = next ?? []',
-				'	qty( sku: text ): int = 0',
-				'	total = 1',
+				'	solid items( next?: list $bog_wire_parse_item ) { return next ?? [] }',
+				'	qty( sku: text ): int { return 0 }',
+				'	total() { return 1 }',
 				'	solid ids( next?: list text ) {',
 				'		return next ?? []',
 				'	}',
@@ -96,12 +96,13 @@ namespace $ {
 		},
 
 		'syntax errors point to place'() {
-			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\tsku\n}' ), 'Expected = 3:1' )
-			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\tsolid sku: text\n}' ), 'Expected = 3:1' )
-			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\te = $bog_wire_parse_y( 1 )\n}' ), 'Objects take no arguments, bind properties with <= 2:25' )
-			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\te( next?: int, a: int ) = 1\n}' ), 'Only the last param can be next 2:5' )
-			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\te = "a{b c}"\n}' ), 'Expected } 2:11' )
-			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\te = "a\\q"\n}' ), 'Unknown escape 2:8' )
+			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\tsku\n}' ), 'Expected { 3:1' )
+			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\tsolid sku: text\n}' ), 'Expected { 3:1' )
+			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\ttotal = 1\n}' ), 'Write the body: { return … } 2:8' )
+			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\te() { return $bog_wire_parse_y( 1 ) }\n}' ), 'Objects take no arguments, bind properties with <= 2:34' )
+			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\te( next?: int, a: int ) { return 1 }\n}' ), 'Only the last param can be next 2:5' )
+			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\te() { return "a{b c}" }\n}' ), 'Expected } 2:20' )
+			$mol_assert_equal( failure( 'object $bog_wire_parse_x {\n\te() { return "a\\q" }\n}' ), 'Unknown escape 2:17' )
 			$mol_assert_equal( failure( 'thing $bog_wire_parse_x {}' ), 'Expected type or object 1:1' )
 		},
 

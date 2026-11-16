@@ -2,15 +2,25 @@ type $bog_wire_fold_item { name: text, qty: int }
 
 object $bog_wire_fold_test {
 
-	add( acc: int, item: int ) = acc + item
+	add( acc: int, item: int ) {
+		return acc + item
+	}
 
-	cost( acc: int, item: $bog_wire_fold_item ) = acc + item.qty * 2
+	cost( acc: int, item: $bog_wire_fold_item ) {
+		return acc + item.qty * 2
+	}
 
-	join( acc: text, item: text ) = acc == "" ? item : "{acc},{item}"
+	join( acc: text, item: text ) {
+		return acc == "" ? item : "{acc},{item}"
+	}
 
-	push( acc: list int, item: int ) = [ ... acc, item * item ]
+	push( acc: list int, item: int ) {
+		return [ ... acc, item * item ]
+	}
 
-	longest( acc: text?, item: text ) = acc == none || item.size > ( acc ?? "" ).size ? item : acc
+	longest( acc: text?, item: text ) {
+		return acc == none || item.size > ( acc ?? "" ).size ? item : acc
+	}
 
 	action sums_in_order() {
 		assert( [ 1, 2, 3, 4 ].fold( add, 10 ) == 20 )

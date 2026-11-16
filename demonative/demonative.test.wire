@@ -1,6 +1,8 @@
 object $bog_wire_demonative_test {
 
-	app = $bog_wire_demonative()
+	app() {
+		return $bog_wire_demonative()
+	}
 
 	action exec_sets_and_clears() {
 		app.exec( "A1 = 2" )

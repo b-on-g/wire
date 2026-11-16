@@ -1,6 +1,8 @@
 object $bog_wire_demonative_sheet_test {
 
-	sheet = $bog_wire_demonative_sheet()
+	sheet() {
+		return $bog_wire_demonative_sheet()
+	}
 
 	action chain_follows_source() {
 		sheet.set( "A1", "10" )

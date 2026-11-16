@@ -5,15 +5,25 @@ type $bog_wire_shop_cart_item {
 
 object $bog_wire_shop_cart {
 
-	solid items( next?: list $bog_wire_shop_cart_item ) = next ?? []
+	solid items( next?: list $bog_wire_shop_cart_item ) {
+		return next ?? []
+	}
 
-	sku_of( item: $bog_wire_shop_cart_item ) = item.sku
+	sku_of( item: $bog_wire_shop_cart_item ) {
+		return item.sku
+	}
 
-	skus = items.map( sku_of )
+	skus() {
+		return items.map( sku_of )
+	}
 
-	item( sku: text ) = items.find( sku_of, sku )
+	item( sku: text ) {
+		return items.find( sku_of, sku )
+	}
 
-	qty( sku: text ) = item( sku )?.qty ?? 0
+	qty( sku: text ) {
+		return item( sku )?.qty ?? 0
+	}
 
 	action set( sku: text, count: int ) {
 		items( count > 0

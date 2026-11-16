@@ -1,12 +1,20 @@
 object $bog_wire_demonative_repl {
 
-	solid app = $bog_wire_demonative()
+	solid app() {
+		return $bog_wire_demonative()
+	}
 
-	solid seen( next?: int ) = next ?? 0
+	solid seen( next?: int ) {
+		return next ?? 0
+	}
 
-	line = stdin( seen )
+	line() {
+		return stdin( seen )
+	}
 
-	said = line ?? ""
+	said() {
+		return line ?? ""
+	}
 
 	action main() {
 		step()

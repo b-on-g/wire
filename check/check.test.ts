@@ -7,7 +7,7 @@ namespace $ {
 
 	const store = [
 		'object $bog_wire_check_x {',
-		'	solid items( next?: list int ) = next ?? []',
+		'	solid items( next?: list int ) { return next ?? [] }',
 		'	action reset() {',
 		'		items( [] )',
 		'	}',
@@ -16,7 +16,7 @@ namespace $ {
 	const item = [
 		'object $bog_wire_check_item {',
 		'	sku: text',
-		'	label = "#{sku}"',
+		'	label() { return "#{sku}" }',
 		'}',
 	]
 
@@ -25,10 +25,10 @@ namespace $ {
 		'clean program has no errors'() {
 			$mol_assert_equal( errors(
 				... store,
-				'	size = items.size',
-				'	first( index: int ) = index * 2',
-				'	doubled = items.map( first )',
-				'	total = doubled.sum + size',
+				'	size() { return items.size }',
+				'	first( index: int ) { return index * 2 }',
+				'	doubled() { return items.map( first ) }',
+				'	total() { return doubled.sum + size }',
 				'	action push( value: int ) {',
 				'		items( [ ... items, value ] )',
 				'		reset()',
@@ -39,15 +39,15 @@ namespace $ {
 		},
 
 		'memo can not write state'() {
-			$mol_assert_equal( errors( ... store, '	bad = items( [ 1 ] )', '}' ), [ 'Write to items is allowed only in action @6' ] )
+			$mol_assert_equal( errors( ... store, '	bad() { return items( [ 1 ] ) }', '}' ), [ 'Write to items is allowed only in action @6' ] )
 		},
 
 		'memo can not call action'() {
-			$mol_assert_equal( errors( ... store, '	bad = reset()', '}' ), [ "Action reset can't be called from memo @6" ] )
+			$mol_assert_equal( errors( ... store, '	bad() { return reset() }', '}' ), [ "Action reset can't be called from memo @6" ] )
 		},
 
 		'memo can not assert'() {
-			$mol_assert_equal( errors( ... store, '	bad = assert( true )', '}' ), [ 'assert is allowed only in action @6' ] )
+			$mol_assert_equal( errors( ... store, '	bad() { return assert( true ) }', '}' ), [ 'assert is allowed only in action @6' ] )
 		},
 
 		'action statement must have effect'() {
@@ -58,10 +58,10 @@ namespace $ {
 			$mol_assert_equal( errors(
 				... item,
 				'object $bog_wire_check_x {',
-				'	ok = $bog_wire_check_item{ sku <= "tea" }',
-				'	none_bound = $bog_wire_check_item()',
-				'	wrong = $bog_wire_check_item{ sku <= 1 }',
-				'	extra = $bog_wire_check_item{ sku <= "a", label <= "b" }',
+				'	ok() { return $bog_wire_check_item{ sku <= "tea" } }',
+				'	none_bound() { return $bog_wire_check_item() }',
+				'	wrong() { return $bog_wire_check_item{ sku <= 1 } }',
+				'	extra() { return $bog_wire_check_item{ sku <= "a", label <= "b" } }',
 				'}',
 			), [
 				'Property sku is not bound @7',
@@ -74,15 +74,15 @@ namespace $ {
 			$mol_assert_equal( errors(
 				... item,
 				'object $bog_wire_check_x {',
-				'	sku = "tea"',
-				'	own = $bog_wire_check_item()',
+				'	sku() { return "tea" }',
+				'	own() { return $bog_wire_check_item() }',
 				'}',
 				'object $bog_wire_check_y {',
-				'	keyed( sku: text ) = $bog_wire_check_item()',
+				'	keyed( sku: text ) { return $bog_wire_check_item() }',
 				'}',
 				'object $bog_wire_check_z {',
-				'	sku = 1',
-				'	wrong = $bog_wire_check_item()',
+				'	sku() { return 1 }',
+				'	wrong() { return $bog_wire_check_item() }',
 				'}',
 			), [
 				'Expected text for sku, got int @14',
@@ -96,12 +96,12 @@ namespace $ {
 				'	qty: int',
 				'}',
 				'object $bog_wire_check_x {',
-				'	solid base( next?: int ) = next ?? 1',
-				'	id_of( pair: $bog_wire_check_pair ) = pair.id',
-				'	twice( n: int ) = n * 2',
-				'	shifted( n: int ) = n + base',
-				'	wrapped( n: int ) = $bog_wire_check_pair{ id: "x", qty: n }',
-				'	total = base * 2',
+				'	solid base( next?: int ) { return next ?? 1 }',
+				'	id_of( pair: $bog_wire_check_pair ) { return pair.id }',
+				'	twice( n: int ) { return n * 2 }',
+				'	shifted( n: int ) { return n + base }',
+				'	wrapped( n: int ) { return $bog_wire_check_pair{ id: "x", qty: n } }',
+				'	total() { return base * 2 }',
 				'}',
 			].join( '\n' ) )
 			const check = new $bog_wire_check([ module ])
@@ -117,9 +117,9 @@ namespace $ {
 			$mol_assert_equal( errors(
 				... item,
 				'object $bog_wire_check_x {',
-				'	sku = "tea"',
-				'	both( sku: text ) = $bog_wire_check_item()',
-				'	explicit( sku: text ) = $bog_wire_check_item{ sku <= sku }',
+				'	sku() { return "tea" }',
+				'	both( sku: text ) { return $bog_wire_check_item() }',
+				'	explicit( sku: text ) { return $bog_wire_check_item{ sku <= sku } }',
 				'}',
 			), [
 				'Both param and method sku fit, bind it with <= @7',
@@ -129,8 +129,8 @@ namespace $ {
 		'unknown names'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',
-				'	a = missing + 1',
-				'	b = $bog_wire_check_y()',
+				'	a() { return missing + 1 }',
+				'	b() { return $bog_wire_check_y() }',
 				'	c: $bog_wire_check_z',
 				'}',
 			), [
@@ -143,12 +143,12 @@ namespace $ {
 		'operand types'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',
-				'	a = 1 + "x"',
-				'	b = 1 ?? 2',
-				'	c = 1.5 * 2',
-				'	d = !1',
-				'	e = true ? 1 : "x"',
-				'	f = "{[ 1 ]}"',
+				'	a() { return 1 + "x" }',
+				'	b() { return 1 ?? 2 }',
+				'	c() { return 1.5 * 2 }',
+				'	d() { return !1 }',
+				'	e() { return true ? 1 : "x" }',
+				'	f() { return "{[ 1 ]}" }',
 				'}',
 			), [
 				"Can't apply + to int and text @2",
@@ -164,10 +164,10 @@ namespace $ {
 			$mol_assert_equal( errors(
 				... item,
 				'object $bog_wire_check_x {',
-				'	solid found( next?: $bog_wire_check_item ) = next',
-				'	bad = found.sku',
-				'	good: text = found?.sku ?? ""',
-				'	never = good?.size',
+				'	solid found( next?: $bog_wire_check_item ) { return next }',
+				'	bad() { return found.sku }',
+				'	good(): text { return found?.sku ?? "" }',
+				'	never() { return good?.size }',
 				'}',
 			), [
 				'$bog_wire_check_item? may be none, use ?. @7',
@@ -176,26 +176,26 @@ namespace $ {
 		},
 
 		'recursive inference needs declared type'() {
-			$mol_assert_equal( errors( 'object $bog_wire_check_x {', '	a = b + 1', '	b = a', '}' ), [ "Can't infer type of a, declare it @2" ] )
-			$mol_assert_equal( errors( 'object $bog_wire_check_x {', '	a: int = b + 1', '	b = a', '}' ), [] )
+			$mol_assert_equal( errors( 'object $bog_wire_check_x {', '	a() { return b + 1 }', '	b() { return a }', '}' ), [ "Can't infer type of a, declare it @2" ] )
+			$mol_assert_equal( errors( 'object $bog_wire_check_x {', '	a(): int { return b + 1 }', '	b() { return a }', '}' ), [] )
 		},
 
 		'declared type is checked'() {
-			$mol_assert_equal( errors( 'object $bog_wire_check_x {', '	a: text = 1', '}' ), [ 'Expected text, got int @2' ] )
+			$mol_assert_equal( errors( 'object $bog_wire_check_x {', '	a(): text { return 1 }', '}' ), [ 'Expected text, got int @2' ] )
 		},
 
 		'list operations take methods'() {
 			$mol_assert_equal( errors(
 				... store,
-				'	label( name: text ) = name',
-				'	pair( a: int, b: int ) = a + b',
-				'	twice( n: int ) = n * 2',
-				'	a = items.map( label )',
-				'	b = items.map( pair )',
-				'	c = items.map( 1 )',
-				'	d = items.find( twice, "x" )',
-				'	e = items.upsert( twice, 2, "x" )',
-				'	f = items.reduce( twice )',
+				'	label( name: text ) { return name }',
+				'	pair( a: int, b: int ) { return a + b }',
+				'	twice( n: int ) { return n * 2 }',
+				'	a() { return items.map( label ) }',
+				'	b() { return items.map( pair ) }',
+				'	c() { return items.map( 1 ) }',
+				'	d() { return items.find( twice, "x" ) }',
+				'	e() { return items.upsert( twice, 2, "x" ) }',
+				'	f() { return items.reduce( twice ) }',
 				'}',
 			), [
 				'label takes text, list has int @9',
@@ -214,10 +214,10 @@ namespace $ {
 				'	qty: int',
 				'}',
 				'object $bog_wire_check_x {',
-				'	sku = "tea"',
-				'	a = $bog_wire_check_item{ sku, qty: 1 }',
-				'	b = $bog_wire_check_item{ sku }',
-				'	c = $bog_wire_check_item{ sku, qty <= 1 }',
+				'	sku() { return "tea" }',
+				'	a() { return $bog_wire_check_item{ sku, qty: 1 } }',
+				'	b() { return $bog_wire_check_item{ sku } }',
+				'	c() { return $bog_wire_check_item{ sku, qty <= 1 } }',
 				'}',
 			), [
 				'Field qty is not set @8',
@@ -228,9 +228,9 @@ namespace $ {
 		'keyed call arity'() {
 			$mol_assert_equal( errors(
 				... store,
-				'	twice( n: int ) = n * 2',
-				'	a = twice()',
-				'	b = twice( 1, 2 )',
+				'	twice( n: int ) { return n * 2 }',
+				'	a() { return twice() }',
+				'	b() { return twice( 1, 2 ) }',
 				'}',
 			), [
 				'twice takes 1 args @7',
@@ -241,8 +241,8 @@ namespace $ {
 		'print, after and join'() {
 			$mol_assert_equal( errors(
 				... store,
-				'	twice( n: int ) = n * 2',
-				'	bad_after = after( reset )',
+				'	twice( n: int ) { return n * 2 }',
+				'	bad_after() { return after( reset ) }',
 				'	action ok() {',
 				'		print( "{items.size}" )',
 				'		after( reset )',
@@ -269,10 +269,10 @@ namespace $ {
 		'stdin and branches in actions'() {
 			$mol_assert_equal( errors(
 				... store,
-				'	line = stdin( size )',
-				'	size = items.size',
-				'	shout: text = line ?? ""',
-				'	bad_index = stdin( "x" )',
+				'	line() { return stdin( size ) }',
+				'	size() { return items.size }',
+				'	shout(): text { return line ?? "" }',
+				'	bad_index() { return stdin( "x" ) }',
 				'	action ok() {',
 				'		line == none ? reset() : print( shout )',
 				'		size > 1 ? reset() : none',
@@ -291,10 +291,10 @@ namespace $ {
 		'file reads in memo, write and exec only in action'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',
-				'	body = file( "a" ) ?? ""',
-				'	bad_write = write( "a", "b" )',
-				'	bad_exec = exec( "a", [] )',
-				'	bad_file = file( 1 )',
+				'	body() { return file( "a" ) ?? "" }',
+				'	bad_write() { return write( "a", "b" ) }',
+				'	bad_exec() { return exec( "a", [] ) }',
+				'	bad_file() { return file( 1 ) }',
 				'	action run() {',
 				'		write( "a", 1 )',
 				'		exec( "a", "b" )',
@@ -314,19 +314,19 @@ namespace $ {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',
 				'	items: list int',
-				'	solid state( next?: int ) = next ?? 0',
-				'	add( acc: int, item: int ) = acc + item',
-				'	reads( acc: int, item: int ) = acc + state',
-				'	short( item: int ) = item',
-				'	wide( acc: text, item: int ) = acc',
-				'	wrong( acc: int, item: int ) = "{ acc }"',
-				'	ok = items.fold( add, 0 )',
-				'	bad_reads = items.fold( reads, 0 )',
-				'	bad_short = items.fold( short, 0 )',
-				'	bad_item = [ "a" ].fold( add, 0 )',
-				'	bad_init = items.fold( add, "" )',
-				'	bad_wide = items.fold( wide, 0 )',
-				'	bad_result = items.fold( wrong, 0 )',
+				'	solid state( next?: int ) { return next ?? 0 }',
+				'	add( acc: int, item: int ) { return acc + item }',
+				'	reads( acc: int, item: int ) { return acc + state }',
+				'	short( item: int ) { return item }',
+				'	wide( acc: text, item: int ) { return acc }',
+				'	wrong( acc: int, item: int ) { return "{ acc }" }',
+				'	ok() { return items.fold( add, 0 ) }',
+				'	bad_reads() { return items.fold( reads, 0 ) }',
+				'	bad_short() { return items.fold( short, 0 ) }',
+				'	bad_item() { return [ "a" ].fold( add, 0 ) }',
+				'	bad_init() { return items.fold( add, "" ) }',
+				'	bad_wide() { return items.fold( wide, 0 ) }',
+				'	bad_result() { return items.fold( wrong, 0 ) }',
 				'}',
 			), [
 				'reads must read only its params @10',
@@ -342,15 +342,15 @@ namespace $ {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',
 				'	ages: dict text int',
-				'	ok = ages.set( "a", 1 ).get( "a" ) ?? ages.size',
-				'	names: list text = ages.keys',
-				'	bad_key_type: dict float int = [:]',
-				'	bad_key_literal = [ 1.5: 1 ]',
-				'	bad_get = ages.get( 1 )',
-				'	bad_set = ages.set( "a", "b" )',
-				'	mixed = [ "a": 1, 2: 3 ]',
-				'	bad_op = ages.drop( "a" )',
-				'	bad_field = ages.values',
+				'	ok() { return ages.set( "a", 1 ).get( "a" ) ?? ages.size }',
+				'	names(): list text { return ages.keys }',
+				'	bad_key_type(): dict float int { return [:] }',
+				'	bad_key_literal() { return [ 1.5: 1 ] }',
+				'	bad_get() { return ages.get( 1 ) }',
+				'	bad_set() { return ages.set( "a", "b" ) }',
+				'	mixed() { return [ "a": 1, 2: 3 ] }',
+				'	bad_op() { return ages.drop( "a" ) }',
+				'	bad_field() { return ages.values }',
 				'}',
 			), [
 				'Dict key must be int or text, got float @5',
@@ -367,15 +367,15 @@ namespace $ {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',
 				'	items: list int',
-				'	solid state( next?: int ) = next ?? 0',
-				'	twice( value: int ) = value * 2',
-				'	deep( value: int ): int = value > 0 ? deep( value - 1 ) : twice( value )',
-				'	reads( value: int ) = value + state',
-				'	indirect( value: int ) = reads( value )',
-				'	good( acc: int, item: int ) = acc + deep( item )',
-				'	bad( acc: int, item: int ) = acc + indirect( item )',
-				'	ok = items.fold( good, 0 )',
-				'	not_ok = items.fold( bad, 0 )',
+				'	solid state( next?: int ) { return next ?? 0 }',
+				'	twice( value: int ) { return value * 2 }',
+				'	deep( value: int ): int { return value > 0 ? deep( value - 1 ) : twice( value ) }',
+				'	reads( value: int ) { return value + state }',
+				'	indirect( value: int ) { return reads( value ) }',
+				'	good( acc: int, item: int ) { return acc + deep( item ) }',
+				'	bad( acc: int, item: int ) { return acc + indirect( item ) }',
+				'	ok() { return items.fold( good, 0 ) }',
+				'	not_ok() { return items.fold( bad, 0 ) }',
 				'}',
 			), [
 				'bad must read only its params @11',
@@ -385,8 +385,8 @@ namespace $ {
 		'duplicates'() {
 			$mol_assert_equal( errors(
 				'object $bog_wire_check_x {',
-				'	a = 1',
-				'	a = 2',
+				'	a() { return 1 }',
+				'	a() { return 2 }',
 				'}',
 				'object $bog_wire_check_x {}',
 			), [

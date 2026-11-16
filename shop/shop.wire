@@ -1,18 +1,36 @@
 object $bog_wire_shop {
 
-	solid catalog = $bog_wire_shop_catalog()
-	solid cart = $bog_wire_shop_cart()
+	solid catalog() {
+		return $bog_wire_shop_catalog()
+	}
 
-	line( sku: text ) = $bog_wire_shop_line()
+	solid cart() {
+		return $bog_wire_shop_cart()
+	}
 
-	line_sum( line: $bog_wire_shop_line ) = line.sum
-	line_label( line: $bog_wire_shop_line ) = line.label
+	line( sku: text ) {
+		return $bog_wire_shop_line()
+	}
 
-	lines = cart.skus.map( line )
+	line_sum( line: $bog_wire_shop_line ) {
+		return line.sum
+	}
 
-	total = lines.map( line_sum ).sum
+	line_label( line: $bog_wire_shop_line ) {
+		return line.label
+	}
 
-	receipt = [ ... lines.map( line_label ), "total {total}" ]
+	lines() {
+		return cart.skus.map( line )
+	}
+
+	total() {
+		return lines.map( line_sum ).sum
+	}
+
+	receipt() {
+		return [ ... lines.map( line_label ), "total {total}" ]
+	}
 
 	action add( sku: text ) {
 		cart.set( sku, cart.qty( sku ) + 1 )

@@ -1,8 +1,12 @@
 object $bog_wire_io_test {
 
-	path = "/tmp/bog_wire_io_test.txt"
+	path() {
+		return "/tmp/bog_wire_io_test.txt"
+	}
 
-	size( name: text ) = ( file( name ) ?? "" ).size
+	size( name: text ) {
+		return ( file( name ) ?? "" ).size
+	}
 
 	action missing_file_is_none() {
 		assert( file( "/tmp/bog_wire_io_missing/none" ) == none )

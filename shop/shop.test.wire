@@ -1,6 +1,8 @@
 object $bog_wire_shop_test {
 
-	shop = $bog_wire_shop()
+	shop() {
+		return $bog_wire_shop()
+	}
 
 	action total_follows_cart() {
 		shop.catalog.set( "tea", 120 )
