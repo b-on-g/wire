@@ -4,7 +4,7 @@ set -e
 here=${0:A:h}
 root=${here:h:h:h}
 out=$here/-
-sizes=( ${@:-1000 3000 10000} )
+sizes=( ${=@:-1000 3000 10000} )
 runs=5
 
 mkdir -p $out
